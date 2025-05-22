@@ -4,6 +4,11 @@
 
 char *read_file_contents(const char *filename);
 
+inline int is_str_eq(char *a, char *b, size_t len)
+{
+    return strncmp(a, b, len) == 0;
+}
+
 int main(int argc, char *argv[]) {
     // Disable output buffering
     setbuf(stdout, NULL);
@@ -22,12 +27,12 @@ int main(int argc, char *argv[]) {
         
         char *file_contents = read_file_contents(argv[2]);
 
-        // Uncomment this block to pass the first stage
-        // if (strlen(file_contents) > 0) {
-        //     fprintf(stderr, "Scanner not implemented\n");
-        //     exit(1);
-        // } 
-        // printf("EOF  null\n"); // Placeholder, replace this line when implementing the scanner
+
+        if (strlen(file_contents) > 0) {
+            fprintf(stderr, "Scanner not implemented\n");
+            exit(1);
+        } 
+        printf("EOF  null\n"); // Placeholder, replace this line when implementing the scanner
         
         free(file_contents);
     } else {
