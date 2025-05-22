@@ -30,11 +30,23 @@ int main(int argc, char *argv[])
         char *file_contents = read_file_contents(argv[2]);
 
 
-        if (strlen(file_contents) > 0)
+        if (strlen(file_contents) <= 0)
         {
-            fprintf(stderr, "Scanner not implemented\n");
-            exit(1);
+            printf("EOF  null\n");
+            return 0;
         } 
+        size_t file_len = strlen(file_contents);
+        for (size_t i = 0; i < file_len; ++i)
+        {
+        	 if (file_contents[i] == '(')
+        	 { 
+                printf("LEFT_PAREN ( null\n");
+        	 }
+             else if (file_contents[i] == ')')
+             {
+                printf("RIGHT_PAREN ) null\n");
+             }
+        }
         printf("EOF  null\n"); // Placeholder, replace this line when implementing the scanner
         
         free(file_contents);
