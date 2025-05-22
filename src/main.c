@@ -38,14 +38,24 @@ int main(int argc, char *argv[])
         size_t file_len = strlen(file_contents);
         for (size_t i = 0; i < file_len; ++i)
         {
-        	 if (file_contents[i] == '(')
-        	 { 
+             // https://godbolt.org/z/zjGhcjo7j # switch vs if-else | -O3 assembly output,pretty much the same, NO jmp table
+             if (file_contents[i] == '(')
+             { 
                 printf("LEFT_PAREN ( null\n");
         	 }
              else if (file_contents[i] == ')')
              {
                 printf("RIGHT_PAREN ) null\n");
              }
+             else if (file_contents[i] == '{')
+             {
+                printf("LEFT_BRACE { null\n");
+             }
+             else if (file_contents[i] == '}')
+             {
+                printf("RIGHT_BRACE } null\n");
+             }
+             
         }
         printf("EOF  null\n"); // Placeholder, replace this line when implementing the scanner
         
