@@ -93,6 +93,17 @@ int main(int argc, char *argv[])
                     printf("EQUAL = null\n");
                 }
              }
+             else if (file_contents[i] == '!')
+             {
+                if (file_contents[i+1] == '=')
+                {
+                    printf("BANG_EQUAL != null\n");
+                    i++;
+                }else
+                {
+                    printf("BANG ! null\n");
+                }
+             }
 
 
              else if (file_contents[i] == '\n')
