@@ -131,6 +131,8 @@ int main(int argc, char *argv[])
                 if (file_contents[i+1] == '/')
                 {
                     while(i < file_len && file_contents[i++] != '\n');
+                    line_number++;
+                    i--;
                 } else
                 {
                     printf("SLASH / null\n");
@@ -159,6 +161,8 @@ int main(int argc, char *argv[])
         }
         printf("EOF  null\n"); // Placeholder, replace this line when implementing the scanner
         
+        // fflush(stderr);
+        // fflush(stdout);
         free(file_contents);
     }
     else
