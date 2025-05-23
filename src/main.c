@@ -188,6 +188,18 @@ int main(int argc, char *argv[])
                 	i--;
                 }
              }
+             else if (isalpha(file_contents[i]) || file_contents[i] == '_')
+             {
+                char buf[256];
+                int j = 0;
+                while(isdigit(file_contents[i]) || isalpha(file_contents[i]) || file_contents[i] == '_')
+                {
+                    buf[j++] = file_contents[i++];
+                }
+                buf[j] = 0;
+                printf("IDENTIFIER %s null\n", buf);
+                i--; // un-consuming
+             }
              
              
 
