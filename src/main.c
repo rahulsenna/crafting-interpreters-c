@@ -9,6 +9,12 @@ static inline int is_str_eq(char *a, char *b, size_t len)
 {
     return strncmp(a, b, len) == 0;
 }
+char *reserved[16] = {
+    "and", "class", "else", "false", "for", "fun", "if", "nil", "or", "print", "return", "super", "this", "true", "var", "while"
+};
+char *reservedU[16] = {
+    "AND", "CLASS", "ELSE", "FALSE", "FOR", "FUN", "IF", "NIL", "OR", "PRINT", "RETURN", "SUPER", "THIS", "TRUE", "VAR", "WHILE"
+};
 
 int main(int argc, char *argv[])
 {
@@ -197,7 +203,17 @@ int main(int argc, char *argv[])
                     buf[j++] = file_contents[i++];
                 }
                 buf[j] = 0;
+                
+                for (int i = 0; i < 16; ++i)
+                {
+                	if (is_str_eq(reserved[i], buf, strlen(reserved[i])))
+                	{ 
+                        printf("%s %s null\n", reservedU[i], reserved[i]);
+                        goto IDENTIFIER_END;
+                	}
+                }
                 printf("IDENTIFIER %s null\n", buf);
+                IDENTIFIER_END:
                 i--; // un-consuming
              }
              
