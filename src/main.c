@@ -104,6 +104,29 @@ int main(int argc, char *argv[])
                     printf("BANG ! null\n");
                 }
              }
+             else if (file_contents[i] == '<')
+             {
+                if (file_contents[i+1] == '=')
+                {
+                    printf("LESS_EQUAL <= null\n");
+                    i++;
+                }else
+                {
+                    printf("LESS < null\n");
+                }
+             }
+             else if (file_contents[i] == '>')
+             {
+                if (file_contents[i+1] == '=')
+                {
+                    printf("GREATER_EQUAL >= null\n");
+                    i++;
+                }else
+                {
+                    printf("GREATER > null\n");
+                }
+             }
+             
 
 
              else if (file_contents[i] == '\n')
