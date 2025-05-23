@@ -137,6 +137,24 @@ int main(int argc, char *argv[])
                     printf("SLASH / null\n");
                 }
              }
+             else if (file_contents[i] == '"')
+             {
+                char buf[256];
+                int j = 0;
+
+                while(i < file_len && file_contents[i] != '\n' && file_contents[++i] != '"')
+                {
+                    buf[j++] = file_contents[i];
+                }
+                if (file_contents[i] != '"')
+                {
+                    fprintf(stderr, "[line %lu] Error: Unterminated string.\n", line_number);
+                    compile_error = 65;
+                    continue;
+                }
+                buf[j] = 0;
+                printf("STRING \"%s\" %s\n", buf, buf);
+             }
              
              
 
