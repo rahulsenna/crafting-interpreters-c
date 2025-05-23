@@ -82,6 +82,19 @@ int main(int argc, char *argv[])
              {
                 printf("SEMICOLON ; null\n");
              }
+             else if (file_contents[i] == '=')
+             {
+                if (file_contents[i+1] == '=')
+                {
+                    printf("EQUAL_EQUAL == null\n");
+                    i++;
+                }else
+                {
+                    printf("EQUAL = null\n");
+                }
+             }
+
+
              else if (file_contents[i] == '\n')
              {
                 line_number++;
