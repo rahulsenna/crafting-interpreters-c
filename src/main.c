@@ -249,7 +249,12 @@ int main(int argc, char *argv[])
                 token = strtok(0, " ");
                 printf("%s\n", token);
             }
-            
+            else if (is_str_eq(token, "NUMBER", strlen("NUMBER")))
+            {
+                token = strtok(0, " ");
+                token = strtok(0, " ");
+                printf("%s\n", token);
+            }
         }
         
         free(file_contents);
