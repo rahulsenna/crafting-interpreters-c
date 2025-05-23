@@ -16,6 +16,213 @@ char *reservedU[16] = {
     "AND", "CLASS", "ELSE", "FALSE", "FOR", "FUN", "IF", "NIL", "OR", "PRINT", "RETURN", "SUPER", "THIS", "TRUE", "VAR", "WHILE"
 };
 
+int tokenize(const char* file_contents, char *tokens)
+{
+    int compile_error = 0; // (No Error)
+    tokens[0] = 0; // init with empty string
+
+    if (strlen(file_contents) <= 0)
+    {
+        printf("EOF  null\n");
+        return 0;
+    }
+    size_t line_number = 1;
+    size_t file_len = strlen(file_contents);
+    for (size_t i = 0; i < file_len; ++i)
+    {
+        // https://godbolt.org/z/zjGhcjo7j # switch vs if-else | -O3 assembly output,pretty much the same, NO jmp table
+        if (file_contents[i] == '(')
+        {
+            sprintf(tokens, "%sLEFT_PAREN ( null\n", tokens);
+        }
+        else if (file_contents[i] == ')')
+        {
+            sprintf(tokens, "%sRIGHT_PAREN ) null\n", tokens);
+        }
+        else if (file_contents[i] == '{')
+        {
+            sprintf(tokens, "%sLEFT_BRACE { null\n", tokens);
+        }
+        else if (file_contents[i] == '}')
+        {
+            sprintf(tokens, "%sRIGHT_BRACE } null\n", tokens);
+        }
+        else if (file_contents[i] == '*')
+        {
+            sprintf(tokens, "%sSTAR * null\n", tokens);
+        }
+        else if (file_contents[i] == '.')
+        {
+            sprintf(tokens, "%sDOT . null\n", tokens);
+        }
+        else if (file_contents[i] == ',')
+        {
+            sprintf(tokens, "%sCOMMA , null\n", tokens);
+        }
+        else if (file_contents[i] == '+')
+        {
+            sprintf(tokens, "%sPLUS + null\n", tokens);
+        }
+        else if (file_contents[i] == '-')
+        {
+            sprintf(tokens, "%sMINUS - null\n", tokens);
+        }
+        else if (file_contents[i] == ';')
+        {
+            sprintf(tokens, "%sSEMICOLON ; null\n", tokens);
+        }
+        else if (file_contents[i] == '=')
+        {
+            if (file_contents[i + 1] == '=')
+            {
+                sprintf(tokens, "%sEQUAL_EQUAL == null\n", tokens);
+                i++;
+            }
+            else
+            {
+                sprintf(tokens, "%sEQUAL = null\n", tokens);
+            }
+        }
+        else if (file_contents[i] == '!')
+        {
+            if (file_contents[i + 1] == '=')
+            {
+                sprintf(tokens, "%sBANG_EQUAL != null\n", tokens);
+                i++;
+            }
+            else
+            {
+                sprintf(tokens, "%sBANG ! null\n", tokens);
+            }
+        }
+        else if (file_contents[i] == '<')
+        {
+            if (file_contents[i + 1] == '=')
+            {
+                sprintf(tokens, "%sLESS_EQUAL <= null\n", tokens);
+                i++;
+            }
+            else
+            {
+                sprintf(tokens, "%sLESS < null\n", tokens);
+            }
+        }
+        else if (file_contents[i] == '>')
+        {
+            if (file_contents[i + 1] == '=')
+            {
+                sprintf(tokens, "%sGREATER_EQUAL >= null\n", tokens);
+                i++;
+            }
+            else
+            {
+                sprintf(tokens, "%sGREATER > null\n", tokens);
+            }
+        }
+        else if (file_contents[i] == '/')
+        {
+            if (file_contents[i + 1] == '/')
+            {
+                while (i < file_len && file_contents[++i] != '\n')
+                    ;
+                line_number++;
+            }
+            else
+            {
+                sprintf(tokens, "%sSLASH / null\n", tokens);
+            }
+        }
+        else if (file_contents[i] == '"')
+        {
+            char buf[256];
+            int j = 0;
+
+            while (i < file_len && file_contents[i] != '\n' && file_contents[++i] != '"')
+            {
+                buf[j++] = file_contents[i];
+            }
+            if (file_contents[i] != '"')
+            {
+                fprintf(stderr, "[line %lu] Error: Unterminated string.\n", line_number);
+                compile_error = 65;
+                continue;
+            }
+            buf[j] = 0;
+            sprintf(tokens, "%sSTRING \"%s\" %s\n", tokens, buf, buf);
+        }
+        else if (isdigit(file_contents[i]))
+        {
+            char buf[256] = {file_contents[i], 0};
+            int j = 1;
+            int is_decimal = 0;
+            while (isdigit(file_contents[++i]) || file_contents[i] == '.')
+            {
+                buf[j++] = file_contents[i];
+                if (file_contents[i] == '.')
+                    is_decimal = 1;
+            }
+            buf[j] = 0;
+
+            sprintf(tokens, "%sNUMBER %s ", tokens, buf);
+            if (is_decimal)
+            {
+                while (buf[--j] == '0' && buf[j - 1] != '.')
+                    buf[j] = 0;
+
+                sprintf(tokens, "%s%s\n", tokens, buf);
+            }
+            else
+            {
+                sprintf(tokens, "%s%s.0\n", tokens, buf);
+            }
+
+            if (!isdigit(file_contents[i])) // un-consuming char if not part of this nummber
+            {
+                i--;
+            }
+        }
+        else if (isalpha(file_contents[i]) || file_contents[i] == '_')
+        {
+            char buf[256];
+            int j = 0;
+            while (isdigit(file_contents[i]) || isalpha(file_contents[i]) || file_contents[i] == '_')
+            {
+                buf[j++] = file_contents[i++];
+            }
+            buf[j] = 0;
+
+            for (int i = 0; i < 16; ++i)
+            {
+                if (is_str_eq(reserved[i], buf, strlen(reserved[i])))
+                {
+                    sprintf(tokens, "%s%s %s null\n", tokens, reservedU[i], reserved[i]);
+                    goto IDENTIFIER_END;
+                }
+            }
+            sprintf(tokens, "%sIDENTIFIER %s null\n", tokens, buf);
+        IDENTIFIER_END:
+            i--; // un-consuming
+        }
+
+        else if (file_contents[i] == ' ' || file_contents[i] == '\t')
+        {
+        }
+        else if (file_contents[i] == '\n')
+        {
+            line_number++;
+        }
+
+        else
+        {
+            fprintf(stderr, "[line %lu] Error: Unexpected character: %c\n", line_number, file_contents[i]);
+            compile_error = 65; // (Error: Unexpected character)
+        }
+    }
+    sprintf(tokens, "%sEOF  null\n", tokens); // Placeholder, replace this line when implementing the scanner
+
+    return compile_error;
+}
+
 int main(int argc, char *argv[])
 {
     // Disable output buffering
@@ -38,206 +245,9 @@ int main(int argc, char *argv[])
         
         char *file_contents = read_file_contents(argv[2]);
 
-
-        if (strlen(file_contents) <= 0)
-        {
-            printf("EOF  null\n");
-            return 0;
-        } 
-        size_t line_number = 1;
-        size_t file_len = strlen(file_contents);
-        for (size_t i = 0; i < file_len; ++i)
-        {
-             // https://godbolt.org/z/zjGhcjo7j # switch vs if-else | -O3 assembly output,pretty much the same, NO jmp table
-             if (file_contents[i] == '(')
-             { 
-                printf("LEFT_PAREN ( null\n");
-        	 }
-             else if (file_contents[i] == ')')
-             {
-                printf("RIGHT_PAREN ) null\n");
-             }
-             else if (file_contents[i] == '{')
-             {
-                printf("LEFT_BRACE { null\n");
-             }
-             else if (file_contents[i] == '}')
-             {
-                printf("RIGHT_BRACE } null\n");
-             }
-             else if (file_contents[i] == '*')
-             {
-                printf("STAR * null\n");
-             }
-             else if (file_contents[i] == '.')
-             {
-                printf("DOT . null\n");
-             }
-             else if (file_contents[i] == ',')
-             {
-                printf("COMMA , null\n");
-             }
-             else if (file_contents[i] == '+')
-             {
-                printf("PLUS + null\n");
-             }
-             else if (file_contents[i] == '-')
-             {
-                printf("MINUS - null\n");
-             }
-             else if (file_contents[i] == ';')
-             {
-                printf("SEMICOLON ; null\n");
-             }
-             else if (file_contents[i] == '=')
-             {
-                if (file_contents[i+1] == '=')
-                {
-                    printf("EQUAL_EQUAL == null\n");
-                    i++;
-                }else
-                {
-                    printf("EQUAL = null\n");
-                }
-             }
-             else if (file_contents[i] == '!')
-             {
-                if (file_contents[i+1] == '=')
-                {
-                    printf("BANG_EQUAL != null\n");
-                    i++;
-                }else
-                {
-                    printf("BANG ! null\n");
-                }
-             }
-             else if (file_contents[i] == '<')
-             {
-                if (file_contents[i+1] == '=')
-                {
-                    printf("LESS_EQUAL <= null\n");
-                    i++;
-                }else
-                {
-                    printf("LESS < null\n");
-                }
-             }
-             else if (file_contents[i] == '>')
-             {
-                if (file_contents[i+1] == '=')
-                {
-                    printf("GREATER_EQUAL >= null\n");
-                    i++;
-                }else
-                {
-                    printf("GREATER > null\n");
-                }
-             }
-             else if (file_contents[i] == '/')
-             {
-                if (file_contents[i+1] == '/')
-                {
-                    while(i < file_len && file_contents[++i] != '\n');
-                    line_number++;
-                } else
-                {
-                    printf("SLASH / null\n");
-                }
-             }
-             else if (file_contents[i] == '"')
-             {
-                char buf[256];
-                int j = 0;
-
-                while(i < file_len && file_contents[i] != '\n' && file_contents[++i] != '"')
-                {
-                    buf[j++] = file_contents[i];
-                }
-                if (file_contents[i] != '"')
-                {
-                    fprintf(stderr, "[line %lu] Error: Unterminated string.\n", line_number);
-                    compile_error = 65;
-                    continue;
-                }
-                buf[j] = 0;
-                printf("STRING \"%s\" %s\n", buf, buf);
-             }
-             else if (isdigit(file_contents[i]))
-             {
-                char buf[256] = {file_contents[i], 0};
-                int j = 1;
-                int is_decimal = 0;
-                while(isdigit(file_contents[++i]) || file_contents[i] == '.')
-                {
-                    buf[j++] = file_contents[i];
-                    if (file_contents[i] == '.')
-                        is_decimal = 1;
-                }
-                buf[j] = 0;
-
-                printf("NUMBER %s ", buf);
-                if (is_decimal)
-                {
-                    while(buf[--j] == '0' && buf[j-1] != '.')  
-                        buf[j] = 0;                    
-                    
-                    printf("%s\n", buf);
-                }
-                else
-                {
-                    printf("%s.0\n", buf);
-                }
-
-
-                if (!isdigit(file_contents[i])) // un-consuming char if not part of this nummber
-                {
-                	i--;
-                }
-             }
-             else if (isalpha(file_contents[i]) || file_contents[i] == '_')
-             {
-                char buf[256];
-                int j = 0;
-                while(isdigit(file_contents[i]) || isalpha(file_contents[i]) || file_contents[i] == '_')
-                {
-                    buf[j++] = file_contents[i++];
-                }
-                buf[j] = 0;
-                
-                for (int i = 0; i < 16; ++i)
-                {
-                	if (is_str_eq(reserved[i], buf, strlen(reserved[i])))
-                	{ 
-                        printf("%s %s null\n", reservedU[i], reserved[i]);
-                        goto IDENTIFIER_END;
-                	}
-                }
-                printf("IDENTIFIER %s null\n", buf);
-                IDENTIFIER_END:
-                i--; // un-consuming
-             }
-             
-             
-
-             else if (file_contents[i] == ' ' || file_contents[i] == '\t')
-             {
-                
-             }
-             else if (file_contents[i] == '\n')
-             {
-                line_number++;
-             }
-
-
-             else
-             {
-                fprintf(stderr, "[line %lu] Error: Unexpected character: %c\n", line_number, file_contents[i]);
-                compile_error = 65; // (Error: Unexpected character)
-             }
-             
-             
-        }
-        printf("EOF  null\n"); // Placeholder, replace this line when implementing the scanner
+        char tokens[4096];
+        compile_error = tokenize(file_contents, tokens);
+        printf("%s", tokens);
         
         // fflush(stderr);
         // fflush(stdout);
