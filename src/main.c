@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
     if (is_str_eq(command, "tokenize", strlen("tokenize")))
     {
         // You can use print statements as follows for debugging, they'll be visible when running tests.
-        fprintf(stderr, "Logs from your program will appear here!\n");
+        // fprintf(stderr, "Logs from your program will appear here!\n");
         
         char *file_contents = read_file_contents(argv[2]);
 
@@ -135,6 +135,10 @@ int main(int argc, char *argv[])
                 {
                     printf("SLASH / null\n");
                 }
+             }
+             else if (file_contents[i] == ' ' || file_contents[i] == '\t')
+             {
+                
              }
              
 
