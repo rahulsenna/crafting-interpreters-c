@@ -130,21 +130,20 @@ int main(int argc, char *argv[])
              {
                 if (file_contents[i+1] == '/')
                 {
-                    while(i < file_len && file_contents[i++] != '\n');
+                    while(i < file_len && file_contents[++i] != '\n');
                     line_number++;
-                    i--;
                 } else
                 {
                     printf("SLASH / null\n");
                 }
              }
+             
+             
+
              else if (file_contents[i] == ' ' || file_contents[i] == '\t')
              {
                 
              }
-             
-
-
              else if (file_contents[i] == '\n')
              {
                 line_number++;
