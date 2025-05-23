@@ -126,6 +126,16 @@ int main(int argc, char *argv[])
                     printf("GREATER > null\n");
                 }
              }
+             else if (file_contents[i] == '/')
+             {
+                if (file_contents[i+1] == '/')
+                {
+                    while(i < file_len && file_contents[i++] != '\n');
+                } else
+                {
+                    printf("SLASH / null\n");
+                }
+             }
              
 
 
