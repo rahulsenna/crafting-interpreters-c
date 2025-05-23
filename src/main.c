@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 char *read_file_contents(const char *filename);
 
@@ -154,6 +155,38 @@ int main(int argc, char *argv[])
                 }
                 buf[j] = 0;
                 printf("STRING \"%s\" %s\n", buf, buf);
+             }
+             else if (isdigit(file_contents[i]))
+             {
+                char buf[256] = {file_contents[i], 0};
+                int j = 1;
+                int is_decimal = 0;
+                while(isdigit(file_contents[++i]) || file_contents[i] == '.')
+                {
+                    buf[j++] = file_contents[i];
+                    if (file_contents[i] == '.')
+                        is_decimal = 1;
+                }
+                buf[j] = 0;
+
+                printf("NUMBER %s ", buf);
+                if (is_decimal)
+                {
+                    while(buf[--j] == '0' && buf[j-1] != '.')  
+                        buf[j] = 0;                    
+                    
+                    printf("%s\n", buf);
+                }
+                else
+                {
+                    printf("%s.0\n", buf);
+                }
+
+
+                if (!isdigit(file_contents[i])) // un-consuming char if not part of this nummber
+                {
+                	i--;
+                }
              }
              
              
