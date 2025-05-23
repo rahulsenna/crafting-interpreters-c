@@ -255,6 +255,12 @@ int main(int argc, char *argv[])
                 token = strtok(0, " ");
                 printf("%s\n", token);
             }
+            else if (is_str_eq(token, "STRING", strlen("STRING")))
+            {
+                token = strtok(0, "\"");
+                token = strtok(0, "\"");
+                printf("%s\n", token+1/* +1 for whitespace */);
+            }
         }
         
         free(file_contents);
