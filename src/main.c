@@ -22,6 +22,8 @@ int main(int argc, char *argv[])
 
     char *command = argv[1];
 
+    int compile_error = 0; // (NO_ERROR)
+
     if (is_str_eq(command, "tokenize", strlen("tokenize")))
     {
         // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -35,6 +37,7 @@ int main(int argc, char *argv[])
             printf("EOF  null\n");
             return 0;
         } 
+        size_t line_number = 1;
         size_t file_len = strlen(file_contents);
         for (size_t i = 0; i < file_len; ++i)
         {
@@ -79,6 +82,17 @@ int main(int argc, char *argv[])
              {
                 printf("SEMICOLON ; null\n");
              }
+             else if (file_contents[i] == '\n')
+             {
+                line_number++;
+             }
+
+
+             else
+             {
+                fprintf(stderr, "[line %lu] Error: Unexpected character: %c\n", line_number, file_contents[i]);
+                compile_error = 65; // (Error: Unexpected character)
+             }
              
              
         }
@@ -92,7 +106,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    return 0;
+    return compile_error;
 }
 
 char *read_file_contents(const char *filename)
