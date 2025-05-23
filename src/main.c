@@ -55,6 +55,31 @@ int main(int argc, char *argv[])
              {
                 printf("RIGHT_BRACE } null\n");
              }
+             else if (file_contents[i] == '*')
+             {
+                printf("STAR * null\n");
+             }
+             else if (file_contents[i] == '.')
+             {
+                printf("DOT . null\n");
+             }
+             else if (file_contents[i] == ',')
+             {
+                printf("COMMA , null\n");
+             }
+             else if (file_contents[i] == '+')
+             {
+                printf("PLUS + null\n");
+             }
+             else if (file_contents[i] == '-')
+             {
+                printf("MINUS - null\n");
+             }
+             else if (file_contents[i] == ';')
+             {
+                printf("SEMICOLON ; null\n");
+             }
+             
              
         }
         printf("EOF  null\n"); // Placeholder, replace this line when implementing the scanner
