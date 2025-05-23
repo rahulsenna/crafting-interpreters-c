@@ -144,7 +144,7 @@ int tokenize(const char *file_contents, char *tokens)
                     APPEND("NUMBER %s ", num);
                     if (is_decimal)
                     {
-                        while (j > 1 && num[j - 1] == '0' && num[j - 2] != '.') num[--j] = '\0';
+                        while (num[j-1] == '0' && num[j-2] != '.') num[--j] = '\0';
                         APPEND("%s\n", num);
                     }
                     else
@@ -226,9 +226,31 @@ int main(int argc, char *argv[])
         char *file_contents = read_file_contents(argv[2]);
         char tokens[4096];
         compile_error = tokenize(file_contents, tokens);
-        printf("%s\n", file_contents);
-        printf("%s\n", tokens);
-        
+
+        char *lines[100];
+        int total_lines = 0;
+        char *line_start = tokens;
+        while (*line_start)
+        {
+            lines[total_lines++] = line_start;
+            char *line_end = strchr(line_start, '\n'); // Find the end of the line
+            if (line_end) *line_end = 0, line_start = line_end + 1;
+            else break;
+        }
+
+        total_lines--;
+        for (int i = 0; i < total_lines; ++i)
+        {
+            char *line = lines[i];
+            char *token = strtok(line, " ");
+
+            if (is_str_eq(token, "TRUE", strlen("TRUE")) || is_str_eq(token, "FALSE", strlen("FALSE")) || is_str_eq(token, "NIL", strlen("NIL")))
+            {
+                token = strtok(0, " ");
+                printf("%s\n", token);
+            }
+            
+        }
         
         free(file_contents);
     }
