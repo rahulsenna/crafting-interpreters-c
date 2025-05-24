@@ -191,6 +191,29 @@ int tokenize(const char *file_contents, char *tokens)
     return compile_error;
 }
 
+char * parse(char *line, char *out)
+{
+    char *token = strtok(line, " ");
+
+    if (is_str_eq(token, "TRUE", strlen("TRUE")) || is_str_eq(token, "FALSE", strlen("FALSE")) || is_str_eq(token, "NIL", strlen("NIL")))
+    {
+        token = strtok(0, " ");
+        sprintf(out, "%s", token) ;
+    }
+    else if (is_str_eq(token, "NUMBER", strlen("NUMBER")))
+    {
+        token = strtok(0, " ");
+        token = strtok(0, " ");
+        sprintf(out, "%s", token) ;
+    }
+    else if (is_str_eq(token, "STRING", strlen("STRING")))
+    {
+        token = strtok(0, "\"");
+        sprintf(out, "%s", token);
+    }
+    return out;
+}
+
 int main(int argc, char *argv[])
 {
     // Disable output buffering
@@ -242,25 +265,40 @@ int main(int argc, char *argv[])
         for (int i = 0; i < total_lines; ++i)
         {
             char *line = lines[i];
-            char *token = strtok(line, " ");
+            char parse_buf[256];
 
-            if (is_str_eq(token, "TRUE", strlen("TRUE")) || is_str_eq(token, "FALSE", strlen("FALSE")) || is_str_eq(token, "NIL", strlen("NIL")))
+            if (is_str_eq(line, "LEFT_PAREN", strlen("LEFT_PAREN")))
             {
-                token = strtok(0, " ");
-                printf("%s\n", token);
+                char buf[1024];
+                char* curr = buf;
+                
+                int depth = 0;
+                do
+                {
+                    if (is_str_eq(line, "LEFT_PAREN", strlen("LEFT_PAREN")))
+                    {
+                        curr += sprintf(curr, "(group ");
+                        depth--;
+                    }
+                    else if (is_str_eq(line, "RIGHT_PAREN", strlen("RIGHT_PAREN")))
+                    {
+                        curr += sprintf(curr, ")");
+                        depth++;
+                    }
+                    else
+                    {
+                        curr += sprintf(curr, "%s", parse(line, parse_buf));
+                    }
+                    line = lines[++i];
+                } while (depth != 0);
+                printf("%s\n", buf);
             }
-            else if (is_str_eq(token, "NUMBER", strlen("NUMBER")))
+
+            else
             {
-                token = strtok(0, " ");
-                token = strtok(0, " ");
-                printf("%s\n", token);
+                printf("%s\n", parse(line,parse_buf));
             }
-            else if (is_str_eq(token, "STRING", strlen("STRING")))
-            {
-                token = strtok(0, "\"");
-                token = strtok(0, "\"");
-                printf("%s\n", token+1/* +1 for whitespace */);
-            }
+
         }
         
         free(file_contents);
