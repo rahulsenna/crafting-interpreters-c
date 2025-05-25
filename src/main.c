@@ -127,7 +127,10 @@ AstNode* parse_precedence(Parser *parser, Precedence precedence);
 AstNode* parse_number(Parser *parser);
 AstNode* parse_string(Parser *parser);
 AstNode* parse_literal(Parser *parser);
+AstNode* parse_unary(Parser *parser);
 AstNode* parse_grouping(Parser *parser);
+// AstNode* parse_binary(Parser *parser, AstNode *left);
+#define parse_binary 0
 ParseRule* get_rule(uint8_t type);
 
 AstNode *create_ast_node(AstNodeType type, uint8_t token_type, char *value)
@@ -191,6 +194,16 @@ AstNode *parse_literal(Parser *parser)
     return NULL;
 }
 
+AstNode *parse_unary(Parser *parser)
+{
+    uint8_t operator = previous(parser);
+    AstNode *right = parse_precedence(parser, PREC_UNARY);
+    
+    AstNode *node = create_ast_node(AST_UNARY, operator, NULL);
+    node->right = right;
+    return node;
+}
+
 AstNode* parse_grouping(Parser *parser)
 {
     AstNode *expr = parse_expression(parser);
@@ -202,6 +215,8 @@ ParseRule rules[] =
 {
     [LEFT_PAREN]    = {parse_grouping, NULL,         PREC_NONE},
     [RIGHT_PAREN]   = {NULL,           NULL,         PREC_NONE},
+    [MINUS]         = {parse_unary,    parse_binary, PREC_TERM},
+    [BANG]          = {parse_unary,    NULL,         PREC_NONE},
     [STRING]        = {parse_string,   NULL,         PREC_NONE},
     [NUMBER]        = {parse_number,   NULL,         PREC_NONE},
     [FALSE]         = {parse_literal,  NULL,         PREC_NONE},
