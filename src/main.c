@@ -9,84 +9,136 @@ static inline int is_str_eq(char *a, char *b, size_t len)
 {
     return strncmp(a, b, len) == 0;
 }
-char *reserved[16] = {
-    "and", "class", "else", "false", "for", "fun", "if", "nil", "or", "print", "return", "super", "this", "true", "var", "while"
+enum TokenEnum
+{
+    AND = 0x0,
+    CLASS,
+    ELSE,
+    FALSE,
+    FOR,
+    FUN,
+    IF,
+    NIL,
+    OR,
+    PRINT,
+    RETURN,
+    SUPER,
+    THIS,
+    TRUE,
+    VAR,
+    WHILE,
+    LEFT_PAREN,
+    RIGHT_PAREN,
+    LEFT_BRACE,
+    RIGHT_BRACE,
+    STAR,
+    DOT,
+    COMMA,
+    PLUS,
+    MINUS,
+    SEMICOLON,
+    EQUAL_EQUAL,
+    EQUAL,
+    BANG_EQUAL,
+    BANG,
+    LESS_EQUAL,
+    LESS,
+    GREATER_EQUAL,
+    GREATER,
+    SLASH,
+    STRING,
+    NUMBER,
+    IDENTIFIER,
+    TOKEN_EOF 
 };
-char *reservedU[16] = {
-    "AND", "CLASS", "ELSE", "FALSE", "FOR", "FUN", "IF", "NIL", "OR", "PRINT", "RETURN", "SUPER", "THIS", "TRUE", "VAR", "WHILE"
+char *reserved[] = {
+    "and", "class", "else", "false", "for", "fun", "if", "nil", "or", "print", "return", "super", "this", "true", "var", "while",
+    "(", ")", "{", "}", "*", ".", ",", "+", "-", ";",
+    "==", "=", "!=", "!", "<=", "<", ">=", ">", "/", "", "", "", "EOF",
+};
+char *reservedU[] = {
+    "AND", "CLASS", "ELSE", "FALSE", "FOR", "FUN", "IF", "NIL", "OR", "PRINT", "RETURN", "SUPER", "THIS", "TRUE", "VAR", "WHILE",
+    "LEFT_PAREN", "RIGHT_PAREN", "LEFT_BRACE", "RIGHT_BRACE", "STAR", "DOT", "COMMA", "PLUS", "MINUS", "SEMICOLON", 
+    "EQUAL_EQUAL", "EQUAL", "BANG_EQUAL", "BANG", "LESS_EQUAL", "LESS", "GREATER_EQUAL", "GREATER", "SLASH", "STRING", "NUMBER", "IDENTIFIER", "EOF",
 };
 
-int tokenize(const char *file_contents, char *tokens)
+typedef struct
 {
-    int compile_error = 0;
+    uint8_t *IDs;
+    char **data;
+    uint64_t size;
+    int error;
+} Tokens;
+
+};
+
+Tokens tokenize(const char *file_contents)
+{
     size_t line_number = 1;
     const size_t file_len = strlen(file_contents);
-    char *write_ptr = tokens;
 
-    if (file_len == 0)
-    {
-        write_ptr += sprintf(write_ptr, "EOF  null\n");
-        return 0;
-    }
-    #define APPEND(...) write_ptr += sprintf(write_ptr, __VA_ARGS__)
+    Tokens tokens = {.size = 0, .error = 0};
+    tokens.IDs = calloc(1000'1000, sizeof(uint8_t));
+    tokens.data = calloc(1000'1000, sizeof(char*));
+
     for (size_t i = 0; i < file_len; ++i)
     {
         switch (file_contents[i])
         {
-            case '(': APPEND("LEFT_PAREN ( null\n"); break;
-            case ')': APPEND("RIGHT_PAREN ) null\n"); break;
-            case '{': APPEND("LEFT_BRACE { null\n"); break;
-            case '}': APPEND("RIGHT_BRACE } null\n"); break;
-            case '*': APPEND("STAR * null\n"); break;
-            case '.': APPEND("DOT . null\n"); break;
-            case ',': APPEND("COMMA , null\n"); break;
-            case '+': APPEND("PLUS + null\n"); break;
-            case '-': APPEND("MINUS - null\n"); break;
-            case ';': APPEND("SEMICOLON ; null\n"); break;
+            case '(': tokens.IDs[tokens.size++] = LEFT_PAREN;  break;
+            case ')': tokens.IDs[tokens.size++] = RIGHT_PAREN; break;
+            case '{': tokens.IDs[tokens.size++] = LEFT_BRACE;  break;
+            case '}': tokens.IDs[tokens.size++] = RIGHT_BRACE; break;
+            case '*': tokens.IDs[tokens.size++] = STAR;        break; 
+            case '.': tokens.IDs[tokens.size++] = DOT;         break; 
+            case ',': tokens.IDs[tokens.size++] = COMMA;       break; 
+            case '+': tokens.IDs[tokens.size++] = PLUS;        break; 
+            case '-': tokens.IDs[tokens.size++] = MINUS;       break; 
+            case ';': tokens.IDs[tokens.size++] = SEMICOLON;   break; 
 
             case '=':
                 if (file_contents[i + 1] == '=')
                 {
-                    APPEND("EQUAL_EQUAL == null\n");
+                    tokens.IDs[tokens.size++] = EQUAL_EQUAL;
                     i++;
                 } else {
-                    APPEND("EQUAL = null\n");
+                    tokens.IDs[tokens.size++] = EQUAL;
                 }
                 break;
 
             case '!':
                 if (file_contents[i + 1] == '=')
                 {
-                    APPEND("BANG_EQUAL != null\n");
+                    tokens.IDs[tokens.size++] = BANG_EQUAL;
                     i++;
                 }
                 else
                 {
-                    APPEND("BANG ! null\n");
+                    tokens.IDs[tokens.size++] = BANG;
                 }
                 break;
 
             case '<':
                 if (file_contents[i + 1] == '=')
                 {
-                    APPEND("LESS_EQUAL <= null\n");
+                    tokens.IDs[tokens.size++] = LESS_EQUAL;
                     i++;
                 }
                 else
                 {
-                    APPEND("LESS < null\n");
+                    tokens.IDs[tokens.size++] = LESS;
                 }
                 break;
 
             case '>':
                 if (file_contents[i + 1] == '=')
                 {
-                    APPEND("GREATER_EQUAL >= null\n");
+                    tokens.IDs[tokens.size++] = GREATER_EQUAL;
                     i++;
                 }
                 else
                 {
-                    APPEND("GREATER > null\n");
+                    tokens.IDs[tokens.size++] = GREATER;
                 }
                 break;
 
@@ -98,7 +150,7 @@ int tokenize(const char *file_contents, char *tokens)
                 }
                 else
                 {
-                    APPEND("SLASH / null\n");
+                    tokens.IDs[tokens.size++] = SLASH;
                 }
                 break;
 
@@ -114,11 +166,13 @@ int tokenize(const char *file_contents, char *tokens)
                 if (file_contents[i] != '"')
                 {
                     fprintf(stderr, "[line %lu] Error: Unterminated string.\n", line_number);
-                    compile_error = 65;
+                    tokens.error = 65;
                     break;
                 }
 
-                APPEND("STRING \"%s\" %s\n", str_val, str_val);
+                tokens.IDs[tokens.size] = STRING;
+                tokens.data[tokens.size] = strdup(str_val);
+                tokens.size++;
                 break;
             }
 
@@ -141,16 +195,9 @@ int tokenize(const char *file_contents, char *tokens)
                     i--; // unconsume
                     num[j] = '\0';
 
-                    APPEND("NUMBER %s ", num);
-                    if (is_decimal)
-                    {
-                        while (num[j-1] == '0' && num[j-2] != '.') num[--j] = '\0';
-                        APPEND("%s\n", num);
-                    }
-                    else
-                    {
-                        APPEND("%s.0\n", num);
-                    }
+                    tokens.IDs[tokens.size] = NUMBER;
+                    tokens.data[tokens.size] = strdup(num);
+                    tokens.size++;
                 }
                 else if (isalpha(file_contents[i]) || file_contents[i] == '_')
                 {
@@ -165,30 +212,31 @@ int tokenize(const char *file_contents, char *tokens)
                     id[j] = '\0';
 
                     int is_keyword = 0;
-                    for (int k = 0; k < 16; ++k)
+                    for (int k = 0; k < 16; ++k) // first 16 enums are keywords
                     {
                         if (is_str_eq(reserved[k], id, strlen(reserved[k])))
                         {
-                            APPEND("%s %s null\n", reservedU[k], reserved[k]);
+                            tokens.IDs[tokens.size++] = k;
                             is_keyword = 1;
                             break;
                         }
                     }
                     if (!is_keyword)
-                        APPEND("IDENTIFIER %s null\n", id);
-                    
+                    {
+                        tokens.IDs[tokens.size] = IDENTIFIER;
+                        tokens.data[tokens.size] = strdup(id);
+                        tokens.size++;    
+                    }   
                 }
                 else
                 {
                     fprintf(stderr, "[line %lu] Error: Unexpected character: %c\n", line_number, file_contents[i]);
-                    compile_error = 65;
+                    tokens.error = 65;
                 }
         }
     }
 
-    APPEND("EOF  null\n");
-    #undef APPEND
-    return compile_error;
+    return tokens;
 }
 
 char * parse(char *line, char *out)
@@ -227,8 +275,6 @@ int main(int argc, char *argv[])
 
     char *command = argv[1];
 
-    int compile_error = 0; // (NO_ERROR)
-
     if (is_str_eq(command, "tokenize", strlen("tokenize")))
     {
         // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -236,69 +282,39 @@ int main(int argc, char *argv[])
         
         char *file_contents = read_file_contents(argv[2]);
 
-        char tokens[4096];
-        compile_error = tokenize(file_contents, tokens);
-        printf("%s", tokens);
+        Tokens tokens = tokenize(file_contents);
+        for (size_t i = 0; i < tokens.size; ++i)
+        {
+            uint8_t id = tokens.IDs[i];
+            char *str = tokens.data[i];
+            if (str == NULL)
+            { 
+                printf("%s %s null\n", reservedU[id], reserved[id]);
+            } else
+            {
+                if (id == STRING)
+                    printf("%s \"%s\" %s\n", reservedU[id], str, str);
+                else if (id == IDENTIFIER)
+                {
+                    printf("IDENTIFIER %s null\n", str);
+                }
+                else if (id == NUMBER)
+                {
+                    double num = strtod(str, 0);
+                    if (num == (int)num) 
+                        printf("%s %s %.1f\n", reservedU[id], str, num);
+                    else 
+                        printf("%s %s %.10g\n", reservedU[id], str, num);
+                }
+            }
+        }
+        printf("EOF  null\n");
         
         // fflush(stderr);
         // fflush(stdout);
         free(file_contents);
+        return tokens.error;
     }
-    else if (is_str_eq(command, "parse", strlen("parse")))
-    {
-        char *file_contents = read_file_contents(argv[2]);
-        char tokens[4096];
-        compile_error = tokenize(file_contents, tokens);
-
-        char *lines[100];
-        int total_lines = 0;
-        char *line_start = tokens;
-        while (*line_start)
-        {
-            lines[total_lines++] = line_start;
-            char *line_end = strchr(line_start, '\n'); // Find the end of the line
-            if (line_end) *line_end = 0, line_start = line_end + 1;
-            else break;
-        }
-
-        total_lines--;
-        for (int i = 0; i < total_lines; ++i)
-        {
-            char *line = lines[i];
-            char parse_buf[256];
-
-            if (is_str_eq(line, "LEFT_PAREN", strlen("LEFT_PAREN")))
-            {
-                char buf[1024];
-                char* curr = buf;
-                
-                int depth = 0;
-                do
-                {
-                    if (is_str_eq(line, "LEFT_PAREN", strlen("LEFT_PAREN")))
-                    {
-                        curr += sprintf(curr, "(group ");
-                        depth--;
-                    }
-                    else if (is_str_eq(line, "RIGHT_PAREN", strlen("RIGHT_PAREN")))
-                    {
-                        curr += sprintf(curr, ")");
-                        depth++;
-                    }
-                    else
-                    {
-                        curr += sprintf(curr, "%s", parse(line, parse_buf));
-                    }
-                    line = lines[++i];
-                } while (depth != 0);
-                printf("%s\n", buf);
-            }
-
-            else
-            {
-                printf("%s\n", parse(line,parse_buf));
-            }
-
         }
         
         free(file_contents);
