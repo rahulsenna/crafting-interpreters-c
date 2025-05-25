@@ -127,10 +127,10 @@ AstNode* parse_precedence(Parser *parser, Precedence precedence);
 AstNode* parse_number(Parser *parser);
 AstNode* parse_string(Parser *parser);
 AstNode* parse_literal(Parser *parser);
+// AstNode* parse_variable(Parser *parser);
 AstNode* parse_unary(Parser *parser);
 AstNode* parse_grouping(Parser *parser);
-// AstNode* parse_binary(Parser *parser, AstNode *left);
-#define parse_binary 0
+AstNode* parse_binary(Parser *parser, AstNode *left);
 ParseRule* get_rule(uint8_t type);
 
 AstNode *create_ast_node(AstNodeType type, uint8_t token_type, char *value)
@@ -175,6 +175,13 @@ int match(Parser *parser, uint8_t type)
     advance(parser);
     return 1;
 }
+
+void error_at_current(Parser *parser, const char *message)
+{
+    fprintf(stderr, "Error at token %zu: %s\n", parser->current, message);
+    parser->had_error = 1;
+}
+
 AstNode *parse_number(Parser *parser)
 {
     return create_ast_node(AST_LITERAL, NUMBER, previous_data(parser));
@@ -194,6 +201,11 @@ AstNode *parse_literal(Parser *parser)
     return NULL;
 }
 
+AstNode *parse_variable(Parser *parser)
+{
+    return create_ast_node(AST_VARIABLE, IDENTIFIER, previous_data(parser));
+}
+
 AstNode *parse_unary(Parser *parser)
 {
     uint8_t operator = previous(parser);
@@ -207,21 +219,70 @@ AstNode *parse_unary(Parser *parser)
 AstNode* parse_grouping(Parser *parser)
 {
     AstNode *expr = parse_expression(parser);
+    if (!match(parser, RIGHT_PAREN))
+    {
+        error_at_current(parser, "Expected ')' after expression");
+        return NULL;
+    }
+
     AstNode *node = create_ast_node(AST_GROUPING, LEFT_PAREN, NULL);
     node->left = expr;
     return node;
 }
+
+AstNode* parse_binary(Parser *parser, AstNode *left)
+{
+    uint8_t operator = previous(parser);
+    ParseRule *rule = get_rule(operator);
+    AstNode *right = parse_precedence(parser, rule->precedence + 1);
+    
+    AstNode *node = create_ast_node(AST_BINARY, operator, NULL);
+    node->left = left;
+    node->right = right;
+    return node;
+}
+
 ParseRule rules[] =
 {
     [LEFT_PAREN]    = {parse_grouping, NULL,         PREC_NONE},
     [RIGHT_PAREN]   = {NULL,           NULL,         PREC_NONE},
+    [LEFT_BRACE]    = {NULL,           NULL,         PREC_NONE}, 
+    [RIGHT_BRACE]   = {NULL,           NULL,         PREC_NONE},
+    [COMMA]         = {NULL,           NULL,         PREC_NONE},
+    [DOT]           = {NULL,           NULL,         PREC_NONE},
     [MINUS]         = {parse_unary,    parse_binary, PREC_TERM},
+    [PLUS]          = {NULL,           parse_binary, PREC_TERM},
+    [SEMICOLON]     = {NULL,           NULL,         PREC_NONE},
+    [SLASH]         = {NULL,           parse_binary, PREC_FACTOR},
+    [STAR]          = {NULL,           parse_binary, PREC_FACTOR},
     [BANG]          = {parse_unary,    NULL,         PREC_NONE},
+    [BANG_EQUAL]    = {NULL,           parse_binary, PREC_EQUALITY},
+    [EQUAL]         = {NULL,           NULL,         PREC_NONE},
+    [EQUAL_EQUAL]   = {NULL,           parse_binary, PREC_EQUALITY},
+    [GREATER]       = {NULL,           parse_binary, PREC_COMPARISON},
+    [GREATER_EQUAL] = {NULL,           parse_binary, PREC_COMPARISON},
+    [LESS]          = {NULL,           parse_binary, PREC_COMPARISON},
+    [LESS_EQUAL]    = {NULL,           parse_binary, PREC_COMPARISON},
+    [IDENTIFIER]    = {parse_variable, NULL,         PREC_NONE},
     [STRING]        = {parse_string,   NULL,         PREC_NONE},
     [NUMBER]        = {parse_number,   NULL,         PREC_NONE},
+    [AND]           = {NULL,           parse_binary, PREC_AND},
+    [CLASS]         = {NULL,           NULL,         PREC_NONE},
+    [ELSE]          = {NULL,           NULL,         PREC_NONE},
     [FALSE]         = {parse_literal,  NULL,         PREC_NONE},
+    [FOR]           = {NULL,           NULL,         PREC_NONE},
+    [FUN]           = {NULL,           NULL,         PREC_NONE},
+    [IF]            = {NULL,           NULL,         PREC_NONE},
     [NIL]           = {parse_literal,  NULL,         PREC_NONE},
+    [OR]            = {NULL,           parse_binary, PREC_OR},
+    [PRINT]         = {NULL,           NULL,         PREC_NONE},
+    [RETURN]        = {NULL,           NULL,         PREC_NONE},
+    [SUPER]         = {NULL,           NULL,         PREC_NONE},
+    [THIS]          = {NULL,           NULL,         PREC_NONE},
     [TRUE]          = {parse_literal,  NULL,         PREC_NONE},
+    [VAR]           = {NULL,           NULL,         PREC_NONE},
+    [WHILE]         = {NULL,           NULL,         PREC_NONE},
+    [TOKEN_EOF]     = {NULL,           NULL,         PREC_NONE},
 };
 
 ParseRule *get_rule(uint8_t type)
@@ -235,6 +296,7 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
     PrefixParseFn prefix_rule = get_rule(previous(parser))->prefix;
     if (prefix_rule == NULL)
     {
+        error_at_current(parser, "Expected expression");
         return NULL;
     }
 
@@ -275,8 +337,16 @@ void print_ast(AstNode *node)
                 printf("%s", reserved[node->token_type]);
             
             break;
+        case AST_VARIABLE: printf("%s", node->value); break;
         case AST_UNARY:
             printf("(%s ", reserved[node->token_type]);
+            print_ast(node->right);
+            printf(")");
+            break;
+        case AST_BINARY:
+            printf("(%s ", reserved[node->token_type]);
+            print_ast(node->left);
+            printf(" ");
             print_ast(node->right);
             printf(")");
             break;
