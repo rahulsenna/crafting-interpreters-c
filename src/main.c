@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdint.h>
 
 char *read_file_contents(const char *filename);
 
@@ -70,7 +71,207 @@ typedef struct
     int error;
 } Tokens;
 
+typedef enum
+{
+    AST_LITERAL,
+    AST_UNARY,
+    AST_BINARY,
+    AST_GROUPING,
+    AST_VARIABLE
+} AstNodeType;
+
+typedef struct AstNode
+{
+    AstNodeType type;
+    uint8_t token_type;
+    char *value;
+    struct AstNode *left;
+    struct AstNode *right;
+} AstNode;
+
+// Parser state
+typedef struct
+{
+    Tokens *tokens;
+    size_t current;
+    int had_error;
+} Parser;
+
+typedef enum
+{
+    PREC_NONE,
+    PREC_ASSIGNMENT, // =
+    PREC_OR,         // or
+    PREC_AND,        // and
+    PREC_EQUALITY,   // == !=
+    PREC_COMPARISON, // > >= < <=
+    PREC_TERM,       // + -
+    PREC_FACTOR,     // * /
+    PREC_UNARY,      // ! -
+    PREC_CALL,       // . ()
+    PREC_PRIMARY
+} Precedence;
+
+typedef AstNode* (*PrefixParseFn)(Parser *parser);
+typedef AstNode* (*InfixParseFn)(Parser *parser, AstNode *left);
+
+typedef struct
+{
+    PrefixParseFn prefix;
+    InfixParseFn infix;
+    Precedence precedence;
+} ParseRule;
+
+AstNode* parse_expression(Parser *parser);
+AstNode* parse_precedence(Parser *parser, Precedence precedence);
+AstNode* parse_number(Parser *parser);
+AstNode* parse_string(Parser *parser);
+AstNode* parse_literal(Parser *parser);
+AstNode* parse_grouping(Parser *parser);
+ParseRule* get_rule(uint8_t type);
+
+AstNode *create_ast_node(AstNodeType type, uint8_t token_type, char *value)
+{
+    AstNode *node = malloc(sizeof(AstNode));
+    node->type = type;
+    node->token_type = token_type;
+    node->value = value;
+    node->left = NULL;
+    node->right = NULL;
+    return node;
+}
+
+// Parser helper functions
+uint8_t peek(Parser *parser)
+{
+    if (parser->current >= parser->tokens->size) return TOKEN_EOF;
+    return parser->tokens->IDs[parser->current];
+}
+
+uint8_t previous(Parser *parser)
+{
+    return parser->tokens->IDs[parser->current - 1];
+}
+
+char *previous_data(Parser *parser)
+{
+    return parser->tokens->data[parser->current - 1];
+}
+
+uint8_t advance(Parser *parser)
+{
+    if (parser->current < parser->tokens->size) 
+        parser->current++;
+    
+    return previous(parser);
+}
+
+int match(Parser *parser, uint8_t type)
+{
+    if (peek(parser) != type) return 0;
+    advance(parser);
+    return 1;
+}
+AstNode *parse_number(Parser *parser)
+{
+    return create_ast_node(AST_LITERAL, NUMBER, previous_data(parser));
+}
+
+AstNode *parse_string(Parser *parser)
+{
+    return create_ast_node(AST_LITERAL, STRING, previous_data(parser));
+}
+
+AstNode *parse_literal(Parser *parser)
+{
+    uint8_t token = previous(parser);
+    if (token == FALSE || token == TRUE || token == NIL)
+        return create_ast_node(AST_LITERAL, token, 0);
+    
+    return NULL;
+}
+
+AstNode* parse_grouping(Parser *parser)
+{
+    AstNode *expr = parse_expression(parser);
+    AstNode *node = create_ast_node(AST_GROUPING, LEFT_PAREN, NULL);
+    node->left = expr;
+    return node;
+}
+ParseRule rules[] =
+{
+    [LEFT_PAREN]    = {parse_grouping, NULL,         PREC_NONE},
+    [RIGHT_PAREN]   = {NULL,           NULL,         PREC_NONE},
+    [STRING]        = {parse_string,   NULL,         PREC_NONE},
+    [NUMBER]        = {parse_number,   NULL,         PREC_NONE},
+    [FALSE]         = {parse_literal,  NULL,         PREC_NONE},
+    [NIL]           = {parse_literal,  NULL,         PREC_NONE},
+    [TRUE]          = {parse_literal,  NULL,         PREC_NONE},
 };
+
+ParseRule *get_rule(uint8_t type)
+{
+    return &rules[type];
+}
+
+AstNode *parse_precedence(Parser *parser, Precedence precedence)
+{
+    advance(parser);
+    PrefixParseFn prefix_rule = get_rule(previous(parser))->prefix;
+    if (prefix_rule == NULL)
+    {
+        return NULL;
+    }
+
+    AstNode *left = prefix_rule(parser);
+
+    while (precedence <= get_rule(peek(parser))->precedence)
+    {
+        advance(parser);
+        InfixParseFn infix_rule = get_rule(previous(parser))->infix;
+        left = infix_rule(parser, left);
+    }
+
+    return left;
+}
+
+AstNode *parse_expression(Parser *parser)
+{
+    return parse_precedence(parser, PREC_ASSIGNMENT);
+}
+
+void print_ast(AstNode *node)
+{
+    if (!node) return;
+    
+    switch (node->type)
+    {
+        case AST_LITERAL:
+            if (node->token_type == STRING) 
+                printf("%s", node->value);
+             else if (node->token_type == NUMBER)
+             {
+                double num = strtod(node->value, NULL);
+                if (num == (int)num) 
+                    printf("%.1f", num);
+                 else 
+                    printf("%g", num);   
+             } else 
+                printf("%s", reserved[node->token_type]);
+            
+            break;
+        case AST_UNARY:
+            printf("(%s ", reserved[node->token_type]);
+            print_ast(node->right);
+            printf(")");
+            break;
+        case AST_GROUPING:
+            printf("(group ");
+            print_ast(node->left);
+            printf(")");
+            break;
+    }
+}
 
 Tokens tokenize(const char *file_contents)
 {
@@ -239,28 +440,6 @@ Tokens tokenize(const char *file_contents)
     return tokens;
 }
 
-char * parse(char *line, char *out)
-{
-    char *token = strtok(line, " ");
-
-    if (is_str_eq(token, "TRUE", strlen("TRUE")) || is_str_eq(token, "FALSE", strlen("FALSE")) || is_str_eq(token, "NIL", strlen("NIL")))
-    {
-        token = strtok(0, " ");
-        sprintf(out, "%s", token) ;
-    }
-    else if (is_str_eq(token, "NUMBER", strlen("NUMBER")))
-    {
-        token = strtok(0, " ");
-        token = strtok(0, " ");
-        sprintf(out, "%s", token) ;
-    }
-    else if (is_str_eq(token, "STRING", strlen("STRING")))
-    {
-        token = strtok(0, "\"");
-        sprintf(out, "%s", token);
-    }
-    return out;
-}
 
 int main(int argc, char *argv[])
 {
@@ -315,9 +494,26 @@ int main(int argc, char *argv[])
         free(file_contents);
         return tokens.error;
     }
-        }
+    else if (is_str_eq(command, "parse", strlen("parse")))
+    {
+        char *file_contents = read_file_contents(argv[2]);
+        if (!file_contents) return 1;
         
-        free(file_contents);
+        Tokens tokens = tokenize(file_contents);
+        if (tokens.error)
+            return tokens.error;        
+
+        Parser parser = {&tokens, 0, 0};
+        AstNode *ast = parse_expression(&parser);
+        
+        if (parser.had_error || !ast)
+        {
+            fprintf(stderr, "Parse error occurred\n");
+            return 65;
+        }
+
+        print_ast(ast);
+        printf("\n");
     }
     else
     {
@@ -325,7 +521,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    return compile_error;
+    return 0;
 }
 
 char *read_file_contents(const char *filename)
