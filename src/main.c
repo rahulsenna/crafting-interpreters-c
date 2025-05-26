@@ -4,6 +4,9 @@
 #include <ctype.h>
 #include <stdint.h>
 
+#include "arena.h"
+Arena *arena;
+
 char *read_file_contents(const char *filename);
 
 static inline int is_str_eq(char *a, char *b, size_t len)
@@ -127,7 +130,7 @@ AstNode* parse_precedence(Parser *parser, Precedence precedence);
 AstNode* parse_number(Parser *parser);
 AstNode* parse_string(Parser *parser);
 AstNode* parse_literal(Parser *parser);
-// AstNode* parse_variable(Parser *parser);
+AstNode* parse_variable(Parser *parser);
 AstNode* parse_unary(Parser *parser);
 AstNode* parse_grouping(Parser *parser);
 AstNode* parse_binary(Parser *parser, AstNode *left);
@@ -135,7 +138,7 @@ ParseRule* get_rule(uint8_t type);
 
 AstNode *create_ast_node(AstNodeType type, uint8_t token_type, char *value)
 {
-    AstNode *node = malloc(sizeof(AstNode));
+    AstNode *node = ARENA_ALLOC(arena, AstNode);
     node->type = type;
     node->token_type = token_type;
     node->value = value;
@@ -364,8 +367,8 @@ Tokens tokenize(const char *file_contents)
     const size_t file_len = strlen(file_contents);
 
     Tokens tokens = {.size = 0, .error = 0};
-    tokens.IDs = calloc(1000'1000, sizeof(uint8_t));
-    tokens.data = calloc(1000'1000, sizeof(char*));
+    tokens.IDs = ARENA_CALLOC_ARRAY(arena, uint8_t, 1000'1000);
+    tokens.data = ARENA_CALLOC_ARRAY(arena, char*, 1000'1000);
 
     for (size_t i = 0; i < file_len; ++i)
     {
@@ -457,7 +460,7 @@ Tokens tokenize(const char *file_contents)
                 }
 
                 tokens.IDs[tokens.size] = STRING;
-                tokens.data[tokens.size] = strdup(str_val);
+                tokens.data[tokens.size] = arena_strdup(arena,str_val);
                 tokens.size++;
                 break;
             }
@@ -482,7 +485,7 @@ Tokens tokenize(const char *file_contents)
                     num[j] = '\0';
 
                     tokens.IDs[tokens.size] = NUMBER;
-                    tokens.data[tokens.size] = strdup(num);
+                    tokens.data[tokens.size] = arena_strdup(arena,num);
                     tokens.size++;
                 }
                 else if (isalpha(file_contents[i]) || file_contents[i] == '_')
@@ -510,7 +513,7 @@ Tokens tokenize(const char *file_contents)
                     if (!is_keyword)
                     {
                         tokens.IDs[tokens.size] = IDENTIFIER;
-                        tokens.data[tokens.size] = strdup(id);
+                        tokens.data[tokens.size] = arena_strdup(arena,id);
                         tokens.size++;    
                     }   
                 }
@@ -528,6 +531,7 @@ Tokens tokenize(const char *file_contents)
 
 int main(int argc, char *argv[])
 {
+    arena = arena_init(ARENA_DEFAULT_SIZE);
     // Disable output buffering
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
@@ -576,7 +580,6 @@ int main(int argc, char *argv[])
         
         // fflush(stderr);
         // fflush(stdout);
-        free(file_contents);
         return tokens.error;
     }
     else if (is_str_eq(command, "parse", strlen("parse")))
@@ -622,7 +625,7 @@ char *read_file_contents(const char *filename)
     long file_size = ftell(file);
     rewind(file);
 
-    char *file_contents = malloc(file_size + 1);
+    char *file_contents = ARENA_ALLOC_ARRAY(arena, char, file_size + 1);
     if (file_contents == NULL)
     {
         fprintf(stderr, "Memory allocation failed\n");
@@ -634,7 +637,6 @@ char *read_file_contents(const char *filename)
     if (bytes_read < file_size)
     {
         fprintf(stderr, "Error reading file contents\n");
-        free(file_contents);
         fclose(file);
         return NULL;
     }
