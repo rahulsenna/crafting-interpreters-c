@@ -13,7 +13,7 @@ static inline int is_str_eq(char *a, char *b, size_t len)
 {
     return strncmp(a, b, len) == 0;
 }
-enum TokenEnum
+typedef enum
 {
     AND = 0x0,
     CLASS,
@@ -54,7 +54,7 @@ enum TokenEnum
     NUMBER,
     IDENTIFIER,
     TOKEN_EOF 
-};
+} TokenType;
 char *reserved[] = {
     "and", "class", "else", "false", "for", "fun", "if", "nil", "or", "print", "return", "super", "this", "true", "var", "while",
     "(", ")", "{", "}", "*", ".", ",", "+", "-", ";",
@@ -86,7 +86,7 @@ typedef enum
 typedef struct AstNode
 {
     AstNodeType type;
-    uint8_t token_type;
+    TokenType token_type;
     char *value;
     struct AstNode *left;
     struct AstNode *right;
@@ -528,6 +528,45 @@ Tokens tokenize(const char *file_contents)
     return tokens;
 }
 
+typedef struct
+{
+    char *str;
+    TokenType type;
+    double number;
+} Token;
+
+Token evaluate(AstNode *ast)
+{
+    TokenType type = ast->token_type;
+    
+    if (type == TRUE || type == FALSE || type == NIL)
+        return (Token){.type = type, .str = NULL};
+
+    if (type == NUMBER || type == STRING || type == IDENTIFIER)
+    {
+        Token token = {.type = type, .str = ast->value};
+        if (type == NUMBER)
+            token.number = strtod(ast->value, NULL);
+        return token;
+    }
+
+    if (ast->type == AST_UNARY)
+    {
+        if (type == MINUS)
+            return (Token){.type = NUMBER, .number = -strtod(ast->right->value, NULL)};
+        
+        if (type == BANG)
+        {
+            TokenType right_type = ast->right->token_type;
+            return (Token){.type = (right_type == TRUE) ? FALSE : TRUE, .str = NULL};
+        }
+    }
+    
+    if (ast->type == AST_GROUPING)
+        return evaluate(ast->left);
+    
+    return (Token){.type = 0, .str = NULL};
+}
 
 int main(int argc, char *argv[])
 {
@@ -599,6 +638,33 @@ int main(int argc, char *argv[])
 
         print_ast(ast);
         printf("\n");
+    }
+
+    else if (is_str_eq(command, "evaluate", strlen("evaluate")))
+    {
+        char *file_contents = read_file_contents(argv[2]);
+        if (!file_contents) return 1;
+        
+        Tokens tokens = tokenize(file_contents);
+        if (tokens.error)
+            return tokens.error;        
+
+        Parser parser = {&tokens, 0, 0};
+        AstNode *ast = parse_expression(&parser);
+
+        Token res = evaluate(ast);
+
+        if (res.type == STRING)
+            printf("%s\n", res.str);
+        else if (res.type == NUMBER)
+        {
+            printf("%g\n", res.number);
+        }
+        else
+        { 
+            printf("%s\n", reserved[res.type]);
+        }
+
     }
     else
     {
