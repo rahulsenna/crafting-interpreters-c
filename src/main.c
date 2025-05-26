@@ -554,26 +554,23 @@ int main(int argc, char *argv[])
         for (size_t i = 0; i < tokens.size; ++i)
         {
             uint8_t id = tokens.IDs[i];
-            char *str = tokens.data[i];
-            if (str == NULL)
+            if (id == STRING)
+                    printf("%s \"%s\" %s\n", reservedU[id], tokens.data[i], tokens.data[i]);
+            else if (id == IDENTIFIER)
+            {
+                printf("IDENTIFIER %s null\n", tokens.data[i]);
+            }
+            else if (id == NUMBER)
+            {
+                double num = strtod(tokens.data[i], 0);
+                if (num == (int)num) 
+                    printf("%s %s %.1f\n", reservedU[id], tokens.data[i], num);
+                else 
+                    printf("%s %s %.10g\n", reservedU[id], tokens.data[i], num);
+            }
+            else
             { 
                 printf("%s %s null\n", reservedU[id], reserved[id]);
-            } else
-            {
-                if (id == STRING)
-                    printf("%s \"%s\" %s\n", reservedU[id], str, str);
-                else if (id == IDENTIFIER)
-                {
-                    printf("IDENTIFIER %s null\n", str);
-                }
-                else if (id == NUMBER)
-                {
-                    double num = strtod(str, 0);
-                    if (num == (int)num) 
-                        printf("%s %s %.1f\n", reservedU[id], str, num);
-                    else 
-                        printf("%s %s %.10g\n", reservedU[id], str, num);
-                }
             }
         }
         printf("EOF  null\n");
