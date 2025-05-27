@@ -579,6 +579,20 @@ double eval_arith(AstNode *ast)
     return 0;
 }
 
+char * eval_str(AstNode *ast)
+{
+    if (ast->token_type == STRING)
+    {
+        return ast->value;
+    }
+    if (ast->type == AST_GROUPING)
+        return eval_str(ast->left);
+
+    char *a = eval_str(ast->left);
+    char *b = eval_str(ast->right);
+    return arena_strcat(arena, a, b);
+}
+
 Token evaluate(AstNode *ast)
 {
     TokenType token_type = ast->token_type;
@@ -607,6 +621,19 @@ Token evaluate(AstNode *ast)
     }
     if (ast->type == AST_BINARY)
     {
+        int is_string_concat = 0;
+
+        AstNode *left = ast->left;
+        while (left->type == AST_GROUPING || left->type == AST_BINARY)
+            left = left->left;
+        if (left->token_type == STRING)
+            is_string_concat = 1;
+        
+        if (is_string_concat)
+        {
+            char *str = eval_str(ast);
+            return (Token){.type = STRING, .str = str};
+        }
         double number = eval_arith(ast);
         return (Token){.type = NUMBER, .number = number};
     }

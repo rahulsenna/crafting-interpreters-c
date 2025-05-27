@@ -113,6 +113,27 @@ static inline char *arena_strdup(Arena *arena, const char *str)
     return copy;
 }
 
+// Concatenate strings in arena
+static inline char* arena_strcat(Arena *arena, const char *str1, const char *str2)
+{
+    if (!str1 && !str2) return NULL;
+    if (!str1) return arena_strdup(arena, str2);
+    if (!str2) return arena_strdup(arena, str1);
+    
+    size_t len1 = strlen(str1);
+    size_t len2 = strlen(str2);
+    size_t total_len = len1 + len2 + 1;
+    
+    char *result = (char*)arena_alloc(arena, total_len);
+    if (result)
+    {
+        memcpy(result, str1, len1);
+        memcpy(result + len1, str2, len2);
+        result[len1 + len2] = '\0';
+    }
+    return result;
+}
+
 // Get remaining space in arena
 static inline size_t arena_remaining(const Arena *arena)
 {
