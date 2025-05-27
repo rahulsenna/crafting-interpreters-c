@@ -537,8 +537,14 @@ typedef struct
     double number;
 } Token;
 
+#include <math.h>
+
 double eval_arith(AstNode *ast)
 {
+    if (ast->token_type == STRING || ast->token_type == TRUE || ast->token_type == FALSE || ast->token_type == NIL)
+    {
+        return NAN;
+    }
     if (ast->token_type == NUMBER)
     {
         double number = strtod(ast->value, NULL);
@@ -554,35 +560,29 @@ double eval_arith(AstNode *ast)
         return -number;
     }
 
-    if (ast->token_type == PLUS)
+    double a = eval_arith(ast->left);
+    double b = eval_arith(ast->right);
+    double result;
+    switch(ast->token_type)
     {
-        double a = eval_arith(ast->left);
-        double b = eval_arith(ast->right);
-        return a + b;
+        case PLUS:  result = a+b; break;
+        case MINUS: result = a-b; break;
+        case STAR:  result = a*b; break;
+        case SLASH: result = a/b; break;
+        default: assert(0);
     }
-    else if (ast->token_type == MINUS)
-    {
-        double a = eval_arith(ast->left);
-        double b = eval_arith(ast->right);
-        return a - b;
-    }
-    else if (ast->token_type == STAR)
-    {
-        double a = eval_arith(ast->left);
-        double b = eval_arith(ast->right);
-        return a * b;
-    }
-    else if (ast->token_type == SLASH)
-    {
-        double a = eval_arith(ast->left);
-        double b = eval_arith(ast->right);
-        return a / b;
-    }
-    return 0;
+    return result;
 }
 
-char * eval_str(AstNode *ast)
+char *eval_str(AstNode *ast)
 {
+
+    if (ast->token_type == TRUE || ast->token_type == FALSE || ast->token_type == NIL ||
+        ast->token_type == MINUS || ast->token_type == STAR || ast->token_type == SLASH)
+    {
+        exit(70);
+    }
+
     if (ast->token_type == STRING)
     {
         return ast->value;
@@ -619,7 +619,13 @@ Token evaluate(AstNode *ast)
     if (ast->type == AST_UNARY)
     {
         if (token_type == MINUS)
+        {
+            if (ast->right->token_type != NUMBER)
+            {
+                exit(70);
+            }
             return (Token){.type = NUMBER, .number = -strtod(ast->right->value, NULL)};
+        }            
         
         if (token_type == BANG)
         {
@@ -659,6 +665,10 @@ Token evaluate(AstNode *ast)
         {
             double left_number = eval_arith(ast->left);
             double right_number = eval_arith(ast->right);
+            if (isnan(left_number) || isnan(right_number) && token_type != EQUAL_EQUAL)
+            { 
+            	exit(70);
+            }
 
             int result;
             switch (token_type)
@@ -669,6 +679,7 @@ Token evaluate(AstNode *ast)
                 case GREATER_EQUAL:  result = (left_number >= right_number); break;
                 case LESS:           result = (left_number <  right_number); break;
                 case LESS_EQUAL:     result = (left_number <= right_number); break;
+                default: assert(0);
             }
 
             if (result)
@@ -683,6 +694,10 @@ Token evaluate(AstNode *ast)
             return (Token){.type = STRING, .str = str};
         }
         double number = eval_arith(ast);
+        if (isnan(number))
+        { 
+        	exit(70);
+        }
         return (Token){.type = NUMBER, .number = number};
     }
     
