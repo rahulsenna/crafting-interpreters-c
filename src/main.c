@@ -367,8 +367,8 @@ Tokens tokenize(const char *file_contents)
     const size_t file_len = strlen(file_contents);
 
     Tokens tokens = {.size = 0, .error = 0};
-    tokens.IDs = ARENA_CALLOC_ARRAY(arena, uint8_t, 1000'1000);
-    tokens.data = ARENA_CALLOC_ARRAY(arena, char*, 1000'1000);
+    tokens.IDs = ARENA_CALLOC_ARRAY(arena, uint8_t, 1000000);
+    tokens.data = ARENA_CALLOC_ARRAY(arena, char*, 1000000);
 
     for (size_t i = 0; i < file_len; ++i)
     {
@@ -535,31 +535,80 @@ typedef struct
     double number;
 } Token;
 
+double eval_arith(AstNode *ast)
+{
+    if (ast->token_type == NUMBER)
+    {
+        double number = strtod(ast->value, NULL);
+        return number;
+    }
+
+    if (ast->type == AST_GROUPING)
+        return eval_arith(ast->left);
+
+    if (ast->type == AST_UNARY)
+    {
+        double number = eval_arith(ast->right);
+        return -number;
+    }
+
+    if (ast->token_type == PLUS)
+    {
+        double a = eval_arith(ast->left);
+        double b = eval_arith(ast->right);
+        return a + b;
+    }
+    else if (ast->token_type == MINUS)
+    {
+        double a = eval_arith(ast->left);
+        double b = eval_arith(ast->right);
+        return a - b;
+    }
+    else if (ast->token_type == STAR)
+    {
+        double a = eval_arith(ast->left);
+        double b = eval_arith(ast->right);
+        return a * b;
+    }
+    else if (ast->token_type == SLASH)
+    {
+        double a = eval_arith(ast->left);
+        double b = eval_arith(ast->right);
+        return a / b;
+    }
+    return 0;
+}
+
 Token evaluate(AstNode *ast)
 {
-    TokenType type = ast->token_type;
-    
-    if (type == TRUE || type == FALSE || type == NIL)
-        return (Token){.type = type, .str = NULL};
+    TokenType token_type = ast->token_type;
+        
+    if (token_type == TRUE || token_type == FALSE || token_type == NIL)
+        return (Token){.type = token_type, .str = NULL};
 
-    if (type == NUMBER || type == STRING || type == IDENTIFIER)
+    if (token_type == NUMBER || token_type == STRING || token_type == IDENTIFIER)
     {
-        Token token = {.type = type, .str = ast->value};
-        if (type == NUMBER)
+        Token token = {.type = token_type, .str = ast->value};
+        if (token_type == NUMBER)
             token.number = strtod(ast->value, NULL);
         return token;
     }
 
     if (ast->type == AST_UNARY)
     {
-        if (type == MINUS)
+        if (token_type == MINUS)
             return (Token){.type = NUMBER, .number = -strtod(ast->right->value, NULL)};
         
-        if (type == BANG)
+        if (token_type == BANG)
         {
             TokenType right_type = ast->right->token_type;
             return (Token){.type = (right_type == TRUE) ? FALSE : TRUE, .str = NULL};
         }
+    }
+    if (ast->type == AST_BINARY)
+    {
+        double number = eval_arith(ast);
+        return (Token){.type = NUMBER, .number = number};
     }
     
     if (ast->type == AST_GROUPING)
