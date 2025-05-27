@@ -7,6 +7,8 @@
 #include "arena.h"
 Arena *arena;
 
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+
 char *read_file_contents(const char *filename);
 
 static inline int is_str_eq(char *a, char *b, size_t len)
@@ -596,6 +598,12 @@ char * eval_str(AstNode *ast)
 Token evaluate(AstNode *ast)
 {
     TokenType token_type = ast->token_type;
+    
+    // ----------- [for inline debugger]-------------
+    AstNodeType type = ast->type;
+    AstNode *Left = ast->left;
+    AstNode *Right = ast->right;
+    // ----------- [for inline debugger]-------------
         
     if (token_type == TRUE || token_type == FALSE || token_type == NIL)
         return (Token){.type = token_type, .str = NULL};
@@ -621,15 +629,55 @@ Token evaluate(AstNode *ast)
     }
     if (ast->type == AST_BINARY)
     {
-        int is_string_concat = 0;
-
+        int op_has_string = 0;
         AstNode *left = ast->left;
         while (left->type == AST_GROUPING || left->type == AST_BINARY)
             left = left->left;
         if (left->token_type == STRING)
-            is_string_concat = 1;
+            op_has_string = 1;
+
+        if (op_has_string && token_type == EQUAL_EQUAL || token_type == BANG_EQUAL)
+        {
+            char *left_str = eval_str(ast->left);
+            char *right_str = eval_str(ast->right);
+
+            int str_len = MAX(strlen(left_str), strlen(right_str));
+            int res = is_str_eq(left_str, right_str, str_len);
+
+            if (res && token_type == EQUAL_EQUAL || !res && token_type == BANG_EQUAL)
+                return (Token){.type = TRUE};
+            else
+                return (Token){.type = FALSE};
+        }
+            
+        if (token_type == EQUAL_EQUAL ||
+            token_type == BANG_EQUAL ||
+            token_type == GREATER ||
+            token_type == GREATER_EQUAL ||
+            token_type == LESS ||
+            token_type == LESS_EQUAL)
+        {
+            double left_number = eval_arith(ast->left);
+            double right_number = eval_arith(ast->right);
+
+            int result;
+            switch (token_type)
+            {
+                case EQUAL_EQUAL:    result = (left_number == right_number); break;
+                case BANG_EQUAL:     result = (left_number != right_number); break;
+                case GREATER:        result = (left_number >  right_number); break;
+                case GREATER_EQUAL:  result = (left_number >= right_number); break;
+                case LESS:           result = (left_number <  right_number); break;
+                case LESS_EQUAL:     result = (left_number <= right_number); break;
+            }
+
+            if (result)
+                return (Token){.type = TRUE};
+            else
+                return (Token){.type = FALSE};
+        }
         
-        if (is_string_concat)
+        if (op_has_string)
         {
             char *str = eval_str(ast);
             return (Token){.type = STRING, .str = str};
