@@ -55,6 +55,7 @@ typedef enum
     STRING,
     NUMBER,
     IDENTIFIER,
+    ERROR,
     TOKEN_EOF 
 } TokenType;
 char *reserved[] = {
@@ -82,7 +83,11 @@ typedef enum
     AST_UNARY,
     AST_BINARY,
     AST_GROUPING,
-    AST_VARIABLE
+    AST_VARIABLE,
+    AST_PRINT_STMT,
+    AST_EXPRESSION_STMT,
+    AST_PROGRAM,
+    AST_BLOCK
 } AstNodeType;
 
 typedef struct AstNode
@@ -92,6 +97,10 @@ typedef struct AstNode
     char *value;
     struct AstNode *left;
     struct AstNode *right;
+    // For program/block nodes that can have multiple children
+    struct AstNode **statements;
+    size_t statement_count;
+    size_t statement_capacity;
 } AstNode;
 
 // Parser state
@@ -146,6 +155,10 @@ AstNode *create_ast_node(AstNodeType type, uint8_t token_type, char *value)
     node->value = value;
     node->left = NULL;
     node->right = NULL;
+
+    node->statements = NULL;
+    node->statement_count = 0;
+    node->statement_capacity = 0;
     return node;
 }
 
@@ -322,6 +335,83 @@ AstNode *parse_expression(Parser *parser)
     return parse_precedence(parser, PREC_ASSIGNMENT);
 }
 
+AstNode* parse_print_statement(Parser *parser)
+{
+    AstNode *expr = parse_expression(parser);
+    if (!match(parser, SEMICOLON))
+    {
+        error_at_current(parser, "Expected ';' after expression");
+        return NULL;
+    }
+
+    AstNode *node = create_ast_node(AST_PRINT_STMT, PRINT, NULL);
+    node->left = expr;
+    return node;
+}
+
+AstNode* parse_expression_statement(Parser *parser)
+{
+    AstNode *expr = parse_expression(parser);
+    if (!match(parser, SEMICOLON))
+    {
+        error_at_current(parser, "Expected ';' after expression");
+        return NULL;
+    }
+
+    AstNode *node = create_ast_node(AST_EXPRESSION_STMT, SEMICOLON, NULL);
+    node->left = expr;
+    return node;
+}
+
+AstNode* parse_statement(Parser *parser)
+{
+    if (match(parser, PRINT))
+    {
+        return parse_print_statement(parser);
+    }
+
+    return parse_expression_statement(parser);
+}
+
+int is_at_end(Parser *parser)
+{
+    return peek(parser) == TOKEN_EOF || parser->current >= parser->tokens->size;
+}
+
+void add_statement(AstNode *program, AstNode *statement)
+{
+    if (program->statement_capacity == 0)
+    {
+        program->statement_capacity = 1000;
+        program->statements = ARENA_ALLOC_ARRAY(arena, AstNode *,  program->statement_capacity);
+    }
+    else if (program->statement_count >= program->statement_capacity)
+    {
+        assert(0); // todo: arena re-alloc statements
+    }
+    program->statements[program->statement_count++] = statement;
+}
+
+
+AstNode* parse_program(Parser *parser)
+{
+    AstNode *program = create_ast_node(AST_PROGRAM, 0, NULL);
+
+    while (!is_at_end(parser))
+    {
+        AstNode *stmt = parse_statement(parser);
+        if (stmt)
+        {
+            add_statement(program, stmt);
+        }
+        if (parser->had_error)
+        {
+            return program;
+        }
+    }
+    return program;
+}
+
 void print_ast(AstNode *node)
 {
     if (!node) return;
@@ -360,6 +450,7 @@ void print_ast(AstNode *node)
             print_ast(node->left);
             printf(")");
             break;
+        default: break;
     }
 }
 
@@ -449,9 +540,12 @@ Tokens tokenize(const char *file_contents)
                 char str_val[256];
                 int j = 0;
                 i++; // skip opening "
-                while (i < file_len && file_contents[i] != '"' && file_contents[i] != '\n')
-                    str_val[j++] = file_contents[i++];
-                
+                while (i < file_len && file_contents[i] != '"')
+                {
+                    str_val[j++] = file_contents[i++];   
+                    if (file_contents[i] == '\n')
+                    	line_number++;
+                }                
                 str_val[j] = '\0';
 
                 if (file_contents[i] != '"')
@@ -556,6 +650,8 @@ double eval_arith(AstNode *ast)
 
     if (ast->type == AST_UNARY)
     {
+        if (ast->token_type == BANG)
+            return NAN;
         double number = eval_arith(ast->right);
         return -number;
     }
@@ -569,7 +665,7 @@ double eval_arith(AstNode *ast)
         case MINUS: result = a-b; break;
         case STAR:  result = a*b; break;
         case SLASH: result = a/b; break;
-        default: assert(0);
+        default: return NAN;
     }
     return result;
 }
@@ -577,10 +673,9 @@ double eval_arith(AstNode *ast)
 char *eval_str(AstNode *ast)
 {
 
-    if (ast->token_type == TRUE || ast->token_type == FALSE || ast->token_type == NIL ||
-        ast->token_type == MINUS || ast->token_type == STAR || ast->token_type == SLASH)
+    if (ast->token_type != PLUS && ast->token_type != STRING && ast->type != AST_GROUPING)
     {
-        exit(70);
+        return 0;
     }
 
     if (ast->token_type == STRING)
@@ -592,7 +687,43 @@ char *eval_str(AstNode *ast)
 
     char *a = eval_str(ast->left);
     char *b = eval_str(ast->right);
+    if (a==0 || b ==0)
+        return 0;
     return arena_strcat(arena, a, b);
+}
+
+TokenType eval_boolean_expr(AstNode *ast)
+{
+    if (ast->type == AST_LITERAL)
+        return ast->token_type;
+    
+    if (ast->type == AST_GROUPING)
+        return eval_boolean_expr(ast->left);
+    
+    if (ast->type == AST_UNARY)
+    {
+        if (ast->token_type == MINUS)
+        {
+            fprintf(stderr, "Error: MINUS operator not supported in boolean context\n");
+            exit(99);
+        }
+        return eval_boolean_expr(ast->right) == TRUE ? FALSE : TRUE;
+    }
+
+    double a = eval_boolean_expr(ast->left);
+    double b = eval_boolean_expr(ast->right);
+
+    if (a == ERROR || b == ERROR || a == STRING || a == NUMBER || b == STRING || b == NUMBER)
+        return ERROR;
+
+    TokenType result;
+    switch(ast->token_type)
+    {
+        case EQUAL_EQUAL:  result = a==b?TRUE:FALSE; break;
+        case BANG_EQUAL:   result = a!=b?TRUE:FALSE; break;
+        default: return FALSE;
+    }
+    return result;
 }
 
 Token evaluate(AstNode *ast)
@@ -635,41 +766,28 @@ Token evaluate(AstNode *ast)
     }
     if (ast->type == AST_BINARY)
     {
-        int op_has_string = 0;
-        AstNode *left = ast->left;
-        while (left->type == AST_GROUPING || left->type == AST_BINARY)
-            left = left->left;
-        if (left->token_type == STRING)
-            op_has_string = 1;
-
-        if (op_has_string && token_type == EQUAL_EQUAL || token_type == BANG_EQUAL)
-        {
-            char *left_str = eval_str(ast->left);
-            char *right_str = eval_str(ast->right);
-
-            int str_len = MAX(strlen(left_str), strlen(right_str));
-            int res = is_str_eq(left_str, right_str, str_len);
-
-            if (res && token_type == EQUAL_EQUAL || !res && token_type == BANG_EQUAL)
-                return (Token){.type = TRUE};
-            else
-                return (Token){.type = FALSE};
-        }
+         if (token_type == PLUS || token_type == MINUS || token_type == STAR || token_type == SLASH)
+         { 
+         	double number = eval_arith(ast);
+            if (!isnan(number)) // it's math operation and both oprands are numeric
+                return (Token){.type = NUMBER, .number = number};
             
-        if (token_type == EQUAL_EQUAL ||
-            token_type == BANG_EQUAL ||
-            token_type == GREATER ||
-            token_type == GREATER_EQUAL ||
-            token_type == LESS ||
-            token_type == LESS_EQUAL)
-        {
-            double left_number = eval_arith(ast->left);
-            double right_number = eval_arith(ast->right);
-            if (isnan(left_number) || isnan(right_number) && token_type != EQUAL_EQUAL)
-            { 
+            if (token_type != PLUS)
             	exit(70);
-            }
+            
+            char *str = eval_str(ast);
+            if (str) // concatenation op on both string operands
+                return (Token){.type = STRING, .str = str};
+            
+            exit(70); // if above fails its an error
+         }
 
+        // from this point only comparision ops will be considered
+        double left_number = eval_arith(ast->left);
+        double right_number = eval_arith(ast->right);
+
+        if (!isnan(left_number) && !isnan(right_number)) // both oprands are numeric
+        {
             int result;
             switch (token_type)
             {
@@ -679,26 +797,37 @@ Token evaluate(AstNode *ast)
                 case GREATER_EQUAL:  result = (left_number >= right_number); break;
                 case LESS:           result = (left_number <  right_number); break;
                 case LESS_EQUAL:     result = (left_number <= right_number); break;
-                default: assert(0);
+                default: fprintf(stderr, "[%s:%d] [Error]: Not supported operator ", __FILE__, __LINE__);
+                exit(99);
             }
-
             if (result)
                 return (Token){.type = TRUE};
             else
                 return (Token){.type = FALSE};
         }
+        // relation operations are not possible from here
+        if (token_type == GREATER || token_type == GREATER_EQUAL || token_type == LESS || token_type == LESS_EQUAL)
+            exit(70);
+
+        if (!isnan(left_number) || !isnan(right_number)) // either oprand is a number
+            return (Token){.type = FALSE};
         
-        if (op_has_string)
+        char* left_str = eval_str(ast->left);
+        char* right_str = eval_str(ast->right);
+
+        if (left_str && right_str)
         {
-            char *str = eval_str(ast);
-            return (Token){.type = STRING, .str = str};
+            int is_same = is_str_eq(left_str, right_str, MAX(strlen(left_str), strlen(right_str)));
+            if ((is_same && token_type == EQUAL_EQUAL) || (!is_same && token_type == BANG_EQUAL))
+                return (Token){.type = TRUE};
+            else
+                return (Token){.type = FALSE};
         }
-        double number = eval_arith(ast);
-        if (isnan(number))
-        { 
-        	exit(70);
-        }
-        return (Token){.type = NUMBER, .number = number};
+        if (left_str || right_str)
+            return (Token){.type = FALSE};
+
+        TokenType res = eval_boolean_expr(ast);
+        return (Token){.type = res};
     }
     
     if (ast->type == AST_GROUPING)
@@ -804,6 +933,36 @@ int main(int argc, char *argv[])
             printf("%s\n", reserved[res.type]);
         }
 
+    }
+    else if (is_str_eq(command, "run", strlen("run")))
+    {
+        char *file_contents = read_file_contents(argv[2]);
+        if (!file_contents) return 1;
+        
+        Tokens tokens = tokenize(file_contents);
+        if (tokens.error)
+            return tokens.error;
+
+        Parser parser = {&tokens, 0, 0};
+        AstNode *ast = parse_program(&parser);
+        if (parser.had_error)
+            return 65;
+
+        for (int i = 0; i < ast->statement_count; ++i)
+        {            
+            AstNode *this = ast->statements[i];
+            Token res = evaluate(this->left);
+            if (res.type == STRING)
+                printf("%s\n", res.str);
+            else if (res.type == NUMBER)
+            {
+                printf("%g\n", res.number);
+            }
+            else
+            {
+                printf("%s\n", reserved[res.type]);
+            }
+        }
     }
     else
     {
