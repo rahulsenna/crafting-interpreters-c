@@ -952,6 +952,8 @@ int main(int argc, char *argv[])
         {            
             AstNode *this = ast->statements[i];
             Token res = evaluate(this->left);
+            if (this->token_type != PRINT)
+                continue;
             if (res.type == STRING)
                 printf("%s\n", res.str);
             else if (res.type == NUMBER)
