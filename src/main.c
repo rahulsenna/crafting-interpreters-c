@@ -15,7 +15,7 @@ static inline int is_str_eq(char *a, char *b, size_t len)
 {
     return strncmp(a, b, len) == 0;
 }
-typedef enum
+typedef enum TokenType
 {
     AND = 0x0,
     CLASS,
@@ -77,7 +77,7 @@ typedef struct
     int error;
 } Tokens;
 
-typedef enum
+typedef enum AstNodeType
 {
     AST_LITERAL,
     AST_UNARY,
@@ -111,7 +111,7 @@ typedef struct
     int had_error;
 } Parser;
 
-typedef enum
+typedef enum Precedence
 {
     PREC_NONE,
     PREC_ASSIGNMENT, // =
@@ -145,9 +145,9 @@ AstNode* parse_variable(Parser *parser);
 AstNode* parse_unary(Parser *parser);
 AstNode* parse_grouping(Parser *parser);
 AstNode* parse_binary(Parser *parser, AstNode *left);
-ParseRule* get_rule(uint8_t type);
+ParseRule* get_rule(TokenType type);
 
-AstNode *create_ast_node(AstNodeType type, uint8_t token_type, char *value)
+AstNode *create_ast_node(AstNodeType type, TokenType token_type, char *value)
 {
     AstNode *node = ARENA_ALLOC(arena, AstNode);
     node->type = type;
@@ -187,7 +187,7 @@ uint8_t advance(Parser *parser)
     return previous(parser);
 }
 
-int match(Parser *parser, uint8_t type)
+int match(Parser *parser, TokenType type)
 {
     if (peek(parser) != type) return 0;
     advance(parser);
@@ -303,7 +303,7 @@ ParseRule rules[] =
     [TOKEN_EOF]     = {NULL,           NULL,         PREC_NONE},
 };
 
-ParseRule *get_rule(uint8_t type)
+ParseRule *get_rule(TokenType type)
 {
     return &rules[type];
 }
@@ -335,7 +335,7 @@ AstNode *parse_expression(Parser *parser)
     return parse_precedence(parser, PREC_ASSIGNMENT);
 }
 
-AstNode* parse_print_statement(Parser *parser)
+AstNode* parse_statement_(Parser *parser, AstNodeType node_type, TokenType token_type)
 {
     AstNode *expr = parse_expression(parser);
     if (!match(parser, SEMICOLON))
@@ -344,21 +344,7 @@ AstNode* parse_print_statement(Parser *parser)
         return NULL;
     }
 
-    AstNode *node = create_ast_node(AST_PRINT_STMT, PRINT, NULL);
-    node->left = expr;
-    return node;
-}
-
-AstNode* parse_expression_statement(Parser *parser)
-{
-    AstNode *expr = parse_expression(parser);
-    if (!match(parser, SEMICOLON))
-    {
-        error_at_current(parser, "Expected ';' after expression");
-        return NULL;
-    }
-
-    AstNode *node = create_ast_node(AST_EXPRESSION_STMT, SEMICOLON, NULL);
+    AstNode *node = create_ast_node(node_type, token_type, NULL);
     node->left = expr;
     return node;
 }
@@ -367,10 +353,10 @@ AstNode* parse_statement(Parser *parser)
 {
     if (match(parser, PRINT))
     {
-        return parse_print_statement(parser);
+        return parse_statement_(parser, AST_PRINT_STMT, PRINT);
     }
 
-    return parse_expression_statement(parser);
+    return parse_statement_(parser, AST_EXPRESSION_STMT, SEMICOLON);
 }
 
 int is_at_end(Parser *parser)
