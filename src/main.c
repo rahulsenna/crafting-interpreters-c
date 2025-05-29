@@ -11,9 +11,13 @@ Arena *arena;
 
 char *read_file_contents(const char *filename);
 
-static inline int is_str_eq(char *a, char *b, size_t len)
+static inline int is_str_eq_n(char *a, char *b, size_t len)
 {
     return strncmp(a, b, len) == 0;
+}
+static inline int is_str_eq(char *a, char *b)
+{
+    return strcmp(a, b) == 0;
 }
 typedef enum TokenType
 {
@@ -355,6 +359,10 @@ AstNode* parse_statement(Parser *parser)
     {
         return parse_statement_(parser, AST_PRINT_STMT, PRINT);
     }
+    if (match(parser, VAR))
+    {
+        return parse_statement_(parser, AST_VARIABLE, VAR);
+    }
 
     return parse_statement_(parser, AST_EXPRESSION_STMT, SEMICOLON);
 }
@@ -523,17 +531,14 @@ Tokens tokenize(const char *file_contents)
                 break;
 
             case '"': {
-                char str_val[256];
-                int j = 0;
+                
                 i++; // skip opening "
+                int start = i;
                 while (i < file_len && file_contents[i] != '"')
                 {
-                    str_val[j++] = file_contents[i++];   
-                    if (file_contents[i] == '\n')
-                    	line_number++;
-                }                
-                str_val[j] = '\0';
-
+                    if (file_contents[i++] == '\n')
+                        line_number++;
+                }
                 if (file_contents[i] != '"')
                 {
                     fprintf(stderr, "[line %lu] Error: Unterminated string.\n", line_number);
@@ -542,7 +547,7 @@ Tokens tokenize(const char *file_contents)
                 }
 
                 tokens.IDs[tokens.size] = STRING;
-                tokens.data[tokens.size] = arena_strdup(arena,str_val);
+                tokens.data[tokens.size] = arena_strdup_len(arena,&file_contents[start], i-start);
                 tokens.size++;
                 break;
             }
@@ -554,38 +559,28 @@ Tokens tokenize(const char *file_contents)
             default:
                 if (isdigit(file_contents[i]))
                 {
-                    char num[256];
-                    int j = 0;
                     int is_decimal = 0;
-
-                    while (i < file_len && (isdigit(file_contents[i]) || file_contents[i] == '.'))
-                    {
+                    int start = i;
+                    for (;i < file_len && (isdigit(file_contents[i]) || file_contents[i] == '.'); ++i)
                         if (file_contents[i] == '.') is_decimal = 1;
-                        num[j++] = file_contents[i++];
-                    }
-                    i--; // unconsume
-                    num[j] = '\0';
-
+                    
                     tokens.IDs[tokens.size] = NUMBER;
-                    tokens.data[tokens.size] = arena_strdup(arena,num);
+                    tokens.data[tokens.size] = arena_strdup_len(arena,&file_contents[start], i-start);
                     tokens.size++;
+                    i--; // unconsume
                 }
                 else if (isalpha(file_contents[i]) || file_contents[i] == '_')
                 {
-                    char id[256];
-                    int j = 0;
-
-                    while (i < file_len && (isalnum(file_contents[i]) || file_contents[i] == '_'))
-                    {
-                        id[j++] = file_contents[i++];
-                    }
+                    int start = i;
+                    for (;i < file_len && (isalnum(file_contents[i]) || file_contents[i] == '_'); ++i);
+                    
+                    char *word = arena_strdup_len(arena, &file_contents[start], i-start);
                     i--; // unconsume
-                    id[j] = '\0';
 
                     int is_keyword = 0;
                     for (int k = 0; k < 16; ++k) // first 16 enums are keywords
                     {
-                        if (is_str_eq(reserved[k], id, strlen(reserved[k])))
+                        if (is_str_eq_n(reserved[k], word, strlen(reserved[k])))
                         {
                             tokens.IDs[tokens.size++] = k;
                             is_keyword = 1;
@@ -595,7 +590,7 @@ Tokens tokenize(const char *file_contents)
                     if (!is_keyword)
                     {
                         tokens.IDs[tokens.size] = IDENTIFIER;
-                        tokens.data[tokens.size] = arena_strdup(arena,id);
+                        tokens.data[tokens.size] = word;
                         tokens.size++;    
                     }   
                 }
@@ -803,7 +798,7 @@ Token evaluate(AstNode *ast)
 
         if (left_str && right_str)
         {
-            int is_same = is_str_eq(left_str, right_str, MAX(strlen(left_str), strlen(right_str)));
+            int is_same = is_str_eq(left_str, right_str);
             if ((is_same && token_type == EQUAL_EQUAL) || (!is_same && token_type == BANG_EQUAL))
                 return (Token){.type = TRUE};
             else
@@ -836,7 +831,7 @@ int main(int argc, char *argv[])
 
     char *command = argv[1];
 
-    if (is_str_eq(command, "tokenize", strlen("tokenize")))
+    if (is_str_eq_n(command, "tokenize", strlen("tokenize")))
     {
         // You can use print statements as follows for debugging, they'll be visible when running tests.
         // fprintf(stderr, "Logs from your program will appear here!\n");
@@ -872,7 +867,7 @@ int main(int argc, char *argv[])
         // fflush(stdout);
         return tokens.error;
     }
-    else if (is_str_eq(command, "parse", strlen("parse")))
+    else if (is_str_eq_n(command, "parse", strlen("parse")))
     {
         char *file_contents = read_file_contents(argv[2]);
         if (!file_contents) return 1;
@@ -894,7 +889,7 @@ int main(int argc, char *argv[])
         printf("\n");
     }
 
-    else if (is_str_eq(command, "evaluate", strlen("evaluate")))
+    else if (is_str_eq_n(command, "evaluate", strlen("evaluate")))
     {
         char *file_contents = read_file_contents(argv[2]);
         if (!file_contents) return 1;
@@ -920,7 +915,7 @@ int main(int argc, char *argv[])
         }
 
     }
-    else if (is_str_eq(command, "run", strlen("run")))
+    else if (is_str_eq_n(command, "run", strlen("run")))
     {
         char *file_contents = read_file_contents(argv[2]);
         if (!file_contents) return 1;

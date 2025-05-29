@@ -112,6 +112,20 @@ static inline char *arena_strdup(Arena *arena, const char *str)
     }
     return copy;
 }
+// Duplicate string in arena
+static inline char *arena_strdup_len(Arena *arena, const char *str, size_t len)
+{
+    if (!str)
+        return NULL;
+
+    char *copy = (char *)arena_alloc(arena, len+1);
+    if (copy)
+    {
+        memcpy(copy, str, len);
+    }
+    copy[len] = '\0';
+    return copy;
+}
 
 // Concatenate strings in arena
 static inline char* arena_strcat(Arena *arena, const char *str1, const char *str2)
