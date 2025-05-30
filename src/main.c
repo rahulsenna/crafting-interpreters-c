@@ -361,7 +361,35 @@ AstNode* parse_statement(Parser *parser)
     }
     if (match(parser, VAR))
     {
-        return parse_statement_(parser, AST_VARIABLE, VAR);
+        if (!match(parser, IDENTIFIER))
+        {
+            error_at_current(parser, "Error: var declaration");
+            return NULL;
+        }
+        
+        PrefixParseFn prefix_rule = get_rule(previous(parser))->prefix;
+        if (prefix_rule == NULL)
+        {
+            error_at_current(parser, "Expected expression");
+            return NULL;
+        }
+        AstNode *var_name = prefix_rule(parser);
+        if (!match(parser, EQUAL))
+        {
+            error_at_current(parser, "Error: var declaration");
+            return NULL;
+        }
+        AstNode *expr = parse_expression(parser);
+        if (!match(parser, SEMICOLON))
+        {
+            error_at_current(parser, "Expected ';' after expression");
+            return NULL;
+        }
+        var_name->left = expr;
+        
+        AstNode *var = create_ast_node(AST_VARIABLE, VAR, NULL);
+        var->left = var_name;
+        return var;
     }
 
     return parse_statement_(parser, AST_EXPRESSION_STMT, SEMICOLON);
@@ -613,6 +641,77 @@ typedef struct
 } Token;
 
 #include <math.h>
+#define HASHMAP_SIZE 1000
+typedef struct Entry {
+    char* key;
+    Token* value;
+    struct Entry* next;
+} Entry;
+
+typedef struct HashMap {
+    Entry **entries;
+} HashMap;
+
+// Hash function using djb2 algorithm
+unsigned int hash(const char* str)
+{
+    unsigned int hash = 5381;
+    int c;
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c;
+    
+    return hash % HASHMAP_SIZE;
+}
+
+Token *hashmap_get_token(HashMap *map, char *key)
+{
+    unsigned int index = hash(key);
+    Entry* current = map->entries[index];
+
+    while (current != NULL)
+    {
+        if (is_str_eq(current->key, key))
+        {
+            return current->value;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+// Create new hashmap
+HashMap* hashmap_create()
+{
+    HashMap *map = ARENA_ALLOC(arena, HashMap);
+    map->entries = ARENA_CALLOC_ARRAY(arena, Entry*, HASHMAP_SIZE);
+    return map;
+}
+void hashmap_put_token(HashMap *map, char *key, Token *value)
+{
+    uint32_t index = hash(key);
+    Entry *current = map->entries[index];
+    // Check if key already exists
+    while (current != NULL)
+    {
+        if (is_str_eq(current->key, key))
+        {
+            memcpy(current->value, value, sizeof(Entry));
+            return;
+        }
+        current = current->next;
+    }
+    
+    // Create new entry
+    Entry* newEntry = ARENA_ALLOC(arena, Entry);
+    assert(newEntry);
+    
+    newEntry->key = arena_strdup(arena, key);
+    newEntry->value = (Token*)ARENA_ALLOC(arena, Token);
+    memcpy(newEntry->value, value, sizeof(Token));
+    newEntry->next = map->entries[index];
+    map->entries[index] = newEntry;
+}
+HashMap *map;
 
 double eval_arith(AstNode *ast)
 {
@@ -624,6 +723,13 @@ double eval_arith(AstNode *ast)
     {
         double number = strtod(ast->value, NULL);
         return number;
+    }
+    if (ast->token_type == IDENTIFIER)
+    {
+        Token *val = hashmap_get_token(map, ast->value);
+        if (!val || val->type != NUMBER)
+            return NAN;
+        return val->number;
     }
 
     if (ast->type == AST_GROUPING)
@@ -662,6 +768,13 @@ char *eval_str(AstNode *ast)
     if (ast->token_type == STRING)
     {
         return ast->value;
+    }
+    if (ast->token_type == IDENTIFIER)
+    {
+        Token *val = hashmap_get_token(map, ast->value);
+        if (!val || val->type != STRING)
+            return 0;
+        return val->str;
     }
     if (ast->type == AST_GROUPING)
         return eval_str(ast->left);
@@ -929,12 +1042,43 @@ int main(int argc, char *argv[])
         if (parser.had_error)
             return 65;
 
+        map = hashmap_create();
         for (int i = 0; i < ast->statement_count; ++i)
         {            
             AstNode *this = ast->statements[i];
+            if (this->token_type == VAR)
+            {
+                Token varname = evaluate(this->left);
+                Token value = evaluate(this->left->left);
+                if (value.type == IDENTIFIER)
+                {
+                    Token *actual_value = hashmap_get_token(map, value.str);
+                    if (!actual_value)
+                    {
+                        fprintf(stderr, "var err\n");
+                        return 70;
+                    }
+                    value = *actual_value;
+                }
+                
+                hashmap_put_token(map, varname.str, &value);
+                continue;
+            }
             Token res = evaluate(this->left);
+
             if (this->token_type != PRINT)
                 continue;
+
+            if (res.type == IDENTIFIER)
+            {
+                Token *val = hashmap_get_token(map, res.str);
+                if (!val)
+                {
+                    fprintf(stderr, "var err\n");
+                    return 70;
+                }
+                res = *val;
+            }
             if (res.type == STRING)
                 printf("%s\n", res.str);
             else if (res.type == NUMBER)
