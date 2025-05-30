@@ -167,13 +167,13 @@ AstNode *create_ast_node(AstNodeType type, TokenType token_type, char *value)
 }
 
 // Parser helper functions
-uint8_t peek(Parser *parser)
+static inline TokenType peek(Parser *parser)
 {
     if (parser->current >= parser->tokens->size) return TOKEN_EOF;
     return parser->tokens->IDs[parser->current];
 }
 
-uint8_t previous(Parser *parser)
+static inline TokenType previous(Parser *parser)
 {
     return parser->tokens->IDs[parser->current - 1];
 }
@@ -183,7 +183,7 @@ char *previous_data(Parser *parser)
     return parser->tokens->data[parser->current - 1];
 }
 
-uint8_t advance(Parser *parser)
+static inline TokenType advance(Parser *parser)
 {
     if (parser->current < parser->tokens->size) 
         parser->current++;
@@ -191,14 +191,14 @@ uint8_t advance(Parser *parser)
     return previous(parser);
 }
 
-int match(Parser *parser, TokenType type)
+static inline int match(Parser *parser, TokenType type)
 {
     if (peek(parser) != type) return 0;
     advance(parser);
     return 1;
 }
 
-void error_at_current(Parser *parser, const char *message)
+static inline void error_at_current(Parser *parser, const char *message)
 {
     fprintf(stderr, "Error at token %zu: %s\n", parser->current, message);
     parser->had_error = 1;
@@ -339,10 +339,93 @@ AstNode *parse_expression(Parser *parser)
     return parse_precedence(parser, PREC_ASSIGNMENT);
 }
 
+AstNode *program;
+void add_statement(AstNode *program, AstNode *statement);
+
+// Parse chained assignments (a = b = c = expr;)
+static AstNode* parse_chained_assignment(Parser *parser)
+{
+    size_t pre_idx = parser->current;
+    int var_cnt = 0;
+    for (int i = 0;
+        parser->tokens->IDs[parser->current + 0+i] == EQUAL &&
+        parser->tokens->IDs[parser->current + 1+i] == IDENTIFIER &&
+        parser->tokens->IDs[parser->current + 2+i] == EQUAL;
+        i+=2)
+    {
+        var_cnt++;
+    }
+
+    parser->current += var_cnt*2;
+    if (!match(parser, EQUAL))
+    { 
+        if (!match(parser, SEMICOLON))
+        {
+            error_at_current(parser, "Expected ';' after expression");
+        }
+        return NULL;
+    }
+    AstNode *expr = parse_expression(parser);
+    if (expr == NULL)
+        return NULL;
+
+    if (!match(parser, SEMICOLON))
+    {
+        error_at_current(parser, "Expected ';' after expression");
+        return NULL;
+    }
+    size_t post_idx = parser->current;
+    parser->current = pre_idx;
+    for (int i = 0; i < var_cnt; ++i)
+    {
+        if (!match(parser, EQUAL)) 
+        	assert(0);
+        if (!match(parser, IDENTIFIER)) 
+        	assert(0);
+        
+        PrefixParseFn prefix_rule = get_rule(previous(parser))->prefix;
+        AstNode *var_name = prefix_rule(parser);
+        var_name->left = expr;
+        AstNode *var = create_ast_node(AST_VARIABLE, VAR, NULL);
+        var->left = var_name;
+        add_statement(program, var);
+    }
+    parser->current = post_idx;
+    return expr;
+}
+
+AstNode* parse_assignment(Parser *parser)
+{
+    PrefixParseFn prefix_rule = get_rule(previous(parser))->prefix;
+    if (prefix_rule == NULL)
+    {
+        error_at_current(parser, "Expected expression");
+        return NULL;
+    }
+    AstNode *var_name = prefix_rule(parser);
+    var_name->left = parse_chained_assignment(parser);
+    AstNode *var = create_ast_node(AST_VARIABLE, VAR, NULL);
+    var->left = var_name;
+    return var;
+}
+
 AstNode* parse_statement_(Parser *parser, AstNodeType node_type, TokenType token_type)
 {
     AstNode *expr = parse_expression(parser);
-    if (!match(parser, SEMICOLON))
+    AstNode *assignment = NULL;
+    if (peek(parser) == EQUAL)
+    {
+        assignment = parse_chained_assignment(parser);
+        if (assignment)
+        {
+            AstNode *var = create_ast_node(AST_VARIABLE, VAR, NULL);
+            AstNode *var_name = create_ast_node(AST_VARIABLE, IDENTIFIER, expr->value);
+            var->left = var_name;
+            var_name->left = assignment;
+            add_statement(program, var);
+        }
+    }
+    if (!match(parser, SEMICOLON) && assignment == NULL)
     {
         error_at_current(parser, "Expected ';' after expression");
         return NULL;
@@ -367,28 +450,12 @@ AstNode* parse_statement(Parser *parser)
             return NULL;
         }
         
-        PrefixParseFn prefix_rule = get_rule(previous(parser))->prefix;
-        if (prefix_rule == NULL)
-        {
-            error_at_current(parser, "Expected expression");
-            return NULL;
-        }
-        AstNode *var_name = prefix_rule(parser);
-        if (!match(parser, EQUAL))
-        {
-            error_at_current(parser, "Error: var declaration");
-            return NULL;
-        }
-        AstNode *expr = parse_expression(parser);
-        if (!match(parser, SEMICOLON))
-        {
-            error_at_current(parser, "Expected ';' after expression");
-            return NULL;
-        }
-        var_name->left = expr;
-        
-        AstNode *var = create_ast_node(AST_VARIABLE, VAR, NULL);
-        var->left = var_name;
+        AstNode *var = parse_assignment(parser);
+        return var;
+    }
+    if (match(parser, IDENTIFIER))
+    {
+        AstNode *var = parse_assignment(parser);
         return var;
     }
 
@@ -417,7 +484,7 @@ void add_statement(AstNode *program, AstNode *statement)
 
 AstNode* parse_program(Parser *parser)
 {
-    AstNode *program = create_ast_node(AST_PROGRAM, 0, NULL);
+    program = create_ast_node(AST_PROGRAM, 0, NULL);
 
     while (!is_at_end(parser))
     {
@@ -1049,7 +1116,12 @@ int main(int argc, char *argv[])
             if (this->token_type == VAR)
             {
                 Token varname = evaluate(this->left);
-                Token value = evaluate(this->left->left);
+                Token value = {.type= NIL};
+                if (this->left->left)
+                {
+                    value = evaluate(this->left->left);   
+                }
+                 
                 if (value.type == IDENTIFIER)
                 {
                     Token *actual_value = hashmap_get_token(map, value.str);
@@ -1084,6 +1156,10 @@ int main(int argc, char *argv[])
             else if (res.type == NUMBER)
             {
                 printf("%g\n", res.number);
+            }
+            else if (res.type == NIL)
+            {
+                printf("nil\n");
             }
             else
             {
