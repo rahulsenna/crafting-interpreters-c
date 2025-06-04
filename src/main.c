@@ -88,8 +88,10 @@ typedef enum AstNodeType
     AST_BINARY,
     AST_GROUPING,
     AST_VARIABLE,
+    AST_ASSIGNMENT,
     AST_PRINT_STMT,
     AST_EXPRESSION_STMT,
+    AST_VAR_DECL,
     AST_PROGRAM,
     AST_BLOCK
 } AstNodeType;
@@ -142,14 +144,7 @@ typedef struct
 
 AstNode* parse_expression(Parser *parser);
 AstNode* parse_precedence(Parser *parser, Precedence precedence);
-AstNode* parse_number(Parser *parser);
-AstNode* parse_string(Parser *parser);
-AstNode* parse_literal(Parser *parser);
-AstNode* parse_variable(Parser *parser);
-AstNode* parse_unary(Parser *parser);
-AstNode* parse_grouping(Parser *parser);
-AstNode* parse_binary(Parser *parser, AstNode *left);
-ParseRule* get_rule(TokenType type);
+static inline ParseRule *get_rule(TokenType type);
 
 AstNode *create_ast_node(AstNodeType type, TokenType token_type, char *value)
 {
@@ -166,6 +161,20 @@ AstNode *create_ast_node(AstNodeType type, TokenType token_type, char *value)
     return node;
 }
 
+static void add_statement(AstNode *program, AstNode *statement)
+{
+    if (program->statement_capacity == 0)
+    {
+        program->statement_capacity = 1000;
+        program->statements = ARENA_ALLOC_ARRAY(arena, AstNode *, program->statement_capacity);
+    }
+    else if (program->statement_count >= program->statement_capacity)
+    {
+        assert(0); // todo: arena re-alloc statements
+    }
+    program->statements[program->statement_count++] = statement;
+}
+
 // Parser helper functions
 static inline TokenType peek(Parser *parser)
 {
@@ -173,12 +182,18 @@ static inline TokenType peek(Parser *parser)
     return parser->tokens->IDs[parser->current];
 }
 
+static inline TokenType peek_next(Parser *parser)
+{
+    if (parser->current + 1 >= parser->tokens->size) return TOKEN_EOF;
+    return parser->tokens->IDs[parser->current + 1];
+}
+
 static inline TokenType previous(Parser *parser)
 {
     return parser->tokens->IDs[parser->current - 1];
 }
 
-char *previous_data(Parser *parser)
+static inline char *previous_data(Parser *parser)
 {
     return parser->tokens->data[parser->current - 1];
 }
@@ -198,39 +213,53 @@ static inline int match(Parser *parser, TokenType type)
     return 1;
 }
 
+static inline int is_at_end(Parser *parser)
+{
+    return peek(parser) == TOKEN_EOF || parser->current >= parser->tokens->size;
+}
+
 static inline void error_at_current(Parser *parser, const char *message)
 {
     fprintf(stderr, "Error at token %zu: %s\n", parser->current, message);
     parser->had_error = 1;
 }
 
-AstNode *parse_number(Parser *parser)
+static inline void consume(Parser *parser, TokenType type, const char *message)
+{
+    if (peek(parser) == type)
+    {
+        advance(parser);
+        return;
+    }
+    error_at_current(parser, message);
+}
+
+static inline AstNode *parse_number(Parser *parser)
 {
     return create_ast_node(AST_LITERAL, NUMBER, previous_data(parser));
 }
 
-AstNode *parse_string(Parser *parser)
+static inline AstNode *parse_string(Parser *parser)
 {
     return create_ast_node(AST_LITERAL, STRING, previous_data(parser));
 }
 
-AstNode *parse_literal(Parser *parser)
+static inline AstNode *parse_literal(Parser *parser)
 {
-    uint8_t token = previous(parser);
+    TokenType token = previous(parser);
     if (token == FALSE || token == TRUE || token == NIL)
-        return create_ast_node(AST_LITERAL, token, 0);
-    
+        return create_ast_node(AST_LITERAL, token, NULL);
     return NULL;
 }
 
-AstNode *parse_variable(Parser *parser)
+static inline AstNode *parse_variable(Parser *parser)
 {
     return create_ast_node(AST_VARIABLE, IDENTIFIER, previous_data(parser));
 }
 
-AstNode *parse_unary(Parser *parser)
+static inline AstNode *parse_unary(Parser *parser)
 {
-    uint8_t operator = previous(parser);
+    TokenType operator = previous(parser);
     AstNode *right = parse_precedence(parser, PREC_UNARY);
     
     AstNode *node = create_ast_node(AST_UNARY, operator, NULL);
@@ -238,23 +267,19 @@ AstNode *parse_unary(Parser *parser)
     return node;
 }
 
-AstNode* parse_grouping(Parser *parser)
+static inline AstNode* parse_grouping(Parser *parser)
 {
     AstNode *expr = parse_expression(parser);
-    if (!match(parser, RIGHT_PAREN))
-    {
-        error_at_current(parser, "Expected ')' after expression");
-        return NULL;
-    }
+    consume(parser, RIGHT_PAREN, "Expected ')' after expression");
 
     AstNode *node = create_ast_node(AST_GROUPING, LEFT_PAREN, NULL);
     node->left = expr;
     return node;
 }
 
-AstNode* parse_binary(Parser *parser, AstNode *left)
+static inline AstNode* parse_binary(Parser *parser, AstNode *left)
 {
-    uint8_t operator = previous(parser);
+    TokenType operator = previous(parser);
     ParseRule *rule = get_rule(operator);
     AstNode *right = parse_precedence(parser, rule->precedence + 1);
     
@@ -264,7 +289,7 @@ AstNode* parse_binary(Parser *parser, AstNode *left)
     return node;
 }
 
-ParseRule rules[] =
+static ParseRule rules[] =
 {
     [LEFT_PAREN]    = {parse_grouping, NULL,         PREC_NONE},
     [RIGHT_PAREN]   = {NULL,           NULL,         PREC_NONE},
@@ -307,7 +332,7 @@ ParseRule rules[] =
     [TOKEN_EOF]     = {NULL,           NULL,         PREC_NONE},
 };
 
-ParseRule *get_rule(TokenType type)
+static inline ParseRule *get_rule(TokenType type)
 {
     return &rules[type];
 }
@@ -339,166 +364,444 @@ AstNode *parse_expression(Parser *parser)
     return parse_precedence(parser, PREC_ASSIGNMENT);
 }
 
-AstNode *program;
-void add_statement(AstNode *program, AstNode *statement);
-
-// Parse chained assignments (a = b = c = expr;)
-static AstNode* parse_chained_assignment(Parser *parser)
+AstNode* parse_assignment(Parser *parser)
 {
-    size_t pre_idx = parser->current;
-    int var_cnt = 0;
-    for (int i = 0;
-        parser->tokens->IDs[parser->current + 0+i] == EQUAL &&
-        parser->tokens->IDs[parser->current + 1+i] == IDENTIFIER &&
-        parser->tokens->IDs[parser->current + 2+i] == EQUAL;
-        i+=2)
-    {
-        var_cnt++;
-    }
-
-    parser->current += var_cnt*2;
-    if (!match(parser, EQUAL))
-    { 
-        if (!match(parser, SEMICOLON))
-        {
-            error_at_current(parser, "Expected ';' after expression");
-        }
-        return NULL;
-    }
     AstNode *expr = parse_expression(parser);
-    if (expr == NULL)
-        return NULL;
-
-    if (!match(parser, SEMICOLON))
+    
+    if (match(parser, EQUAL))
     {
-        error_at_current(parser, "Expected ';' after expression");
-        return NULL;
-    }
-    size_t post_idx = parser->current;
-    parser->current = pre_idx;
-    for (int i = 0; i < var_cnt; ++i)
-    {
-        if (!match(parser, EQUAL)) 
-        	assert(0);
-        if (!match(parser, IDENTIFIER)) 
-        	assert(0);
+        AstNode *value = parse_assignment(parser); // Right-associative
         
-        PrefixParseFn prefix_rule = get_rule(previous(parser))->prefix;
-        AstNode *var_name = prefix_rule(parser);
-        var_name->left = expr;
-        AstNode *var = create_ast_node(AST_VARIABLE, VAR, NULL);
-        var->left = var_name;
-        add_statement(program, var);
+        if (expr->type == AST_VARIABLE)
+        {
+            AstNode *assign = create_ast_node(AST_ASSIGNMENT, EQUAL, NULL);
+            assign->left = expr;  // Variable being assigned to
+            assign->right = value; // Value being assigned
+            return assign;
+        }
+        
+        error_at_current(parser, "Invalid assignment target");
+        return NULL;
     }
-    parser->current = post_idx;
     return expr;
 }
 
-AstNode* parse_assignment(Parser *parser)
-{
-    PrefixParseFn prefix_rule = get_rule(previous(parser))->prefix;
-    if (prefix_rule == NULL)
-    {
-        error_at_current(parser, "Expected expression");
-        return NULL;
-    }
-    AstNode *var_name = prefix_rule(parser);
-    var_name->left = parse_chained_assignment(parser);
-    AstNode *var = create_ast_node(AST_VARIABLE, VAR, NULL);
-    var->left = var_name;
-    return var;
-}
-
-AstNode* parse_statement_(Parser *parser, AstNodeType node_type, TokenType token_type)
+static AstNode* parse_print_statement(Parser *parser)
 {
     AstNode *expr = parse_expression(parser);
-    AstNode *assignment = NULL;
-    if (peek(parser) == EQUAL)
-    {
-        assignment = parse_chained_assignment(parser);
-        if (assignment)
-        {
-            AstNode *var = create_ast_node(AST_VARIABLE, VAR, NULL);
-            AstNode *var_name = create_ast_node(AST_VARIABLE, IDENTIFIER, expr->value);
-            var->left = var_name;
-            var_name->left = assignment;
-            add_statement(program, var);
-        }
-    }
-    if (!match(parser, SEMICOLON) && assignment == NULL)
-    {
-        error_at_current(parser, "Expected ';' after expression");
-        return NULL;
-    }
-
-    AstNode *node = create_ast_node(node_type, token_type, NULL);
-    node->left = expr;
-    return node;
+    consume(parser, SEMICOLON, "Expected ';' after print statement");
+    
+    AstNode *stmt = create_ast_node(AST_PRINT_STMT, PRINT, NULL);
+    stmt->left = expr;
+    return stmt;
 }
 
-AstNode* parse_statement(Parser *parser)
+static AstNode* parse_var_declaration(Parser *parser)
+{
+    consume(parser, IDENTIFIER, "Expected variable name");
+    char *name = previous_data(parser);
+    
+    AstNode *initializer = NULL;
+    if (match(parser, EQUAL))
+    {
+        initializer = parse_expression(parser);
+    }
+    
+    consume(parser, SEMICOLON, "Expected ';' after variable declaration");
+    
+    AstNode *var_node = create_ast_node(AST_VAR_DECL, VAR, name);
+    var_node->right = initializer;
+    return var_node;
+}
+
+static AstNode* parse_expression_statement(Parser *parser)
+{
+    AstNode *expr = parse_assignment(parser);
+    consume(parser, SEMICOLON, "Expected ';' after expression");
+    
+    AstNode *stmt = create_ast_node(AST_EXPRESSION_STMT, SEMICOLON, NULL);
+    stmt->left = expr;
+    return stmt;
+}
+
+AstNode* parse_statement(Parser *parser, AstNode *program)
 {
     if (match(parser, PRINT))
     {
-        return parse_statement_(parser, AST_PRINT_STMT, PRINT);
+        if (peek(parser) == IDENTIFIER && peek_next(parser) == EQUAL)
+        { 
+            AstNode *var = parse_var_declaration(parser);
+            if (var)
+            {
+                add_statement(program, var);
+                AstNode *stmt = create_ast_node(AST_PRINT_STMT, PRINT, NULL);
+                AstNode *ID = create_ast_node(AST_VARIABLE, VAR, var->value);
+                stmt->left = ID;
+                return stmt;
+            }
+        }
+        return parse_print_statement(parser);
     }
+    
     if (match(parser, VAR))
     {
-        if (!match(parser, IDENTIFIER))
-        {
-            error_at_current(parser, "Error: var declaration");
-            return NULL;
-        }
-        
-        AstNode *var = parse_assignment(parser);
-        return var;
+        return parse_var_declaration(parser);
     }
-    if (match(parser, IDENTIFIER))
-    {
-        AstNode *var = parse_assignment(parser);
-        return var;
-    }
-
-    return parse_statement_(parser, AST_EXPRESSION_STMT, SEMICOLON);
+    
+    return parse_expression_statement(parser);
 }
-
-int is_at_end(Parser *parser)
-{
-    return peek(parser) == TOKEN_EOF || parser->current >= parser->tokens->size;
-}
-
-void add_statement(AstNode *program, AstNode *statement)
-{
-    if (program->statement_capacity == 0)
-    {
-        program->statement_capacity = 1000;
-        program->statements = ARENA_ALLOC_ARRAY(arena, AstNode *,  program->statement_capacity);
-    }
-    else if (program->statement_count >= program->statement_capacity)
-    {
-        assert(0); // todo: arena re-alloc statements
-    }
-    program->statements[program->statement_count++] = statement;
-}
-
 
 AstNode* parse_program(Parser *parser)
 {
-    program = create_ast_node(AST_PROGRAM, 0, NULL);
+    AstNode *program = create_ast_node(AST_PROGRAM, 0, NULL);
 
-    while (!is_at_end(parser))
+    while (!is_at_end(parser) && !parser->had_error)
     {
-        AstNode *stmt = parse_statement(parser);
+        AstNode *stmt = parse_statement(parser, program);
         if (stmt)
         {
             add_statement(program, stmt);
         }
-        if (parser->had_error)
+    }
+    
+    return program;
+}
+typedef union Value
+{
+    double number;
+    char* string;
+    int boolean;
+} Value;
+
+typedef enum ValueType
+{
+    VAL_NUMBER,
+    VAL_STRING, 
+    VAL_BOOLEAN,
+    VAL_NIL
+} ValueType;
+
+typedef struct RuntimeValue
+{
+    ValueType type;
+    Value as;
+} RuntimeValue;
+
+// Runtime error handling
+static int runtime_error_occurred = 0;
+
+static void runtime_error(const char *message)
+{
+    fprintf(stderr, "Runtime error: %s\n", message);
+    runtime_error_occurred = 1;
+}
+
+// Simple hash table for variables
+#define VAR_TABLE_SIZE 1000
+typedef struct VarEntry
+{
+    char *name;
+    RuntimeValue value;
+    struct VarEntry *next;
+} VarEntry;
+
+typedef struct Environment
+{
+    VarEntry *table[VAR_TABLE_SIZE];
+} Environment;
+
+static unsigned int hash_string(const char *str)
+{
+    unsigned int hash = 5381;
+    int c;
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c;
+    return hash % VAR_TABLE_SIZE;
+}
+
+static void env_set(Environment *env, const char *name, RuntimeValue value)
+{
+    unsigned int index = hash_string(name);
+    VarEntry *entry = env->table[index];
+    
+    // Check if variable already exists
+    while (entry)
+    {
+        if (is_str_eq(entry->name, (char*)name))
         {
-            return program;
+            entry->value = value;
+            return;
+        }
+        entry = entry->next;
+    }
+    
+    // Create new entry
+    VarEntry *new_entry = ARENA_ALLOC(arena, VarEntry);
+    new_entry->name = (char*)name;
+    new_entry->value = value;
+    new_entry->next = env->table[index];
+    env->table[index] = new_entry;
+}
+
+static RuntimeValue* env_get(Environment *env, const char *name)
+{
+    unsigned int index = hash_string(name);
+    VarEntry *entry = env->table[index];
+    
+    while (entry)
+    {
+        if (is_str_eq(entry->name, (char*)name))
+        {
+            return &entry->value;
+        }
+        entry = entry->next;
+    }
+    
+    return NULL; // Variable not found
+}
+
+// Evaluation functions
+static RuntimeValue eval_expression(AstNode *node, Environment *env);
+
+static RuntimeValue make_number(double value)
+{
+    RuntimeValue val;
+    val.type = VAL_NUMBER;
+    val.as.number = value;
+    return val;
+}
+
+static RuntimeValue make_boolean(int value)
+{
+    RuntimeValue val;
+    val.type = VAL_BOOLEAN;
+    val.as.boolean = value;
+    return val;
+}
+
+static RuntimeValue make_nil()
+{
+    RuntimeValue val;
+    val.type = VAL_NIL;
+    return val;
+}
+
+static RuntimeValue make_string(char *value)
+{
+    RuntimeValue val;
+    val.type = VAL_STRING;
+    val.as.string = value;
+    return val;
+}
+
+static int is_truthy(RuntimeValue val)
+{
+    if (val.type == VAL_BOOLEAN) return val.as.boolean;
+    if (val.type == VAL_NIL) return 0;
+    return 1;
+}
+
+static RuntimeValue eval_binary(AstNode *node, Environment *env)
+{
+    RuntimeValue left = eval_expression(node->left, env);
+    if (runtime_error_occurred) return make_nil();
+    
+    RuntimeValue right = eval_expression(node->right, env);
+    if (runtime_error_occurred) return make_nil();
+
+    if (node->token_type == PLUS)
+    {
+        if (left.type == VAL_NUMBER && right.type == VAL_NUMBER)
+            return make_number(left.as.number + right.as.number);
+        else if (left.type == VAL_STRING && right.type == VAL_STRING)
+        {
+            char *result = arena_strcat(arena, left.as.string, right.as.string);
+            return make_string(result);
+        }
+        else
+        {
+            runtime_error("Operands must be two numbers or two strings");
+            return make_nil();
         }
     }
-    return program;
+
+    if (node->token_type == MINUS && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
+        return make_number(left.as.number - right.as.number);
+    
+        if (node->token_type == STAR && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
+        return make_number(left.as.number * right.as.number);
+
+    if (node->token_type == SLASH && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
+        return make_number(left.as.number / right.as.number);
+
+    if (node->token_type == GREATER && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
+        return make_boolean(left.as.number > right.as.number);
+
+    if (node->token_type == GREATER_EQUAL && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
+        return make_boolean(left.as.number >= right.as.number);
+
+    if (node->token_type == LESS && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
+        return make_boolean(left.as.number < right.as.number);
+
+    if (node->token_type == LESS_EQUAL && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
+        return make_boolean(left.as.number <= right.as.number);
+
+    if (node->token_type == EQUAL_EQUAL)
+    {
+        if (left.type != right.type)
+            return make_boolean(0);
+        switch (left.type)
+        {
+            case VAL_NUMBER: return make_boolean(left.as.number == right.as.number);
+            case VAL_BOOLEAN: return make_boolean(left.as.boolean == right.as.boolean);
+            case VAL_STRING: return make_boolean(strcmp(left.as.string, right.as.string) == 0);
+            case VAL_NIL: return make_boolean(1); // nil == nil is true
+        }
+    }
+    if (node->token_type == BANG_EQUAL)
+    {
+        if (left.type != right.type)
+            return make_boolean(1);
+        switch (left.type)
+        {
+            case VAL_NUMBER: return make_boolean(left.as.number != right.as.number);
+            case VAL_BOOLEAN: return make_boolean(left.as.boolean != right.as.boolean);
+            case VAL_STRING: return make_boolean(strcmp(left.as.string, right.as.string) != 0);
+            case VAL_NIL: return make_boolean(0); // nil != nil is false
+        }
+    }
+
+    runtime_error("Unknown binary operator");    
+    return make_nil();
+}
+
+static RuntimeValue eval_unary(AstNode *node, Environment *env)
+{
+    RuntimeValue operand = eval_expression(node->right, env);
+    if (runtime_error_occurred) return make_nil();
+    
+    switch (node->token_type)
+    {
+        case MINUS:
+            if (operand.type == VAL_NUMBER)
+                return make_number(-operand.as.number);
+            runtime_error("Operand must be a number");
+            return make_nil();
+        case BANG:
+            return make_boolean(!is_truthy(operand));
+        default:
+            runtime_error("Unknown unary operator");
+            return make_nil();
+    }
+}
+
+static RuntimeValue eval_expression(AstNode *node, Environment *env)
+{
+    if (!node || runtime_error_occurred) return make_nil();
+    
+    switch (node->type)
+    {
+        case AST_LITERAL:
+            switch (node->token_type)
+            {
+                case NUMBER: return make_number(strtod(node->value, NULL));
+                case STRING: return make_string(node->value);
+                case TRUE:   return make_boolean(1);
+                case FALSE:  return make_boolean(0);
+                case NIL:    return make_nil();
+                default:
+                    break;
+            }
+            break;
+            
+        case AST_VARIABLE:
+        {
+            RuntimeValue *val = env_get(env, node->value);
+            if (val)
+                return *val;
+            runtime_error("Undefined variable");
+            return make_nil();
+        }
+        
+        case AST_BINARY:    return eval_binary(node, env);
+        case AST_UNARY:     return eval_unary(node, env);
+        case AST_GROUPING:  return eval_expression(node->left, env);
+        case AST_ASSIGNMENT:
+        {
+            RuntimeValue value = eval_expression(node->right, env);
+            if (runtime_error_occurred) return make_nil();
+            env_set(env, node->left->value, value);
+            return value;
+        }
+        
+        default:
+            break;
+    }
+    
+    return make_nil();
+}
+
+static void eval_statement(AstNode *node, Environment *env)
+{
+    if (!node || runtime_error_occurred) return;
+    
+    switch (node->type)
+    {
+        case AST_EXPRESSION_STMT:
+            eval_expression(node->left, env);
+            break;
+            
+        case AST_PRINT_STMT:
+        {
+            RuntimeValue val = eval_expression(node->left, env);
+            if (runtime_error_occurred) return;
+            
+            switch (val.type)
+            {
+                case VAL_NUMBER:
+                    printf("%.6g\n", val.as.number);
+                    break;
+                case VAL_STRING:
+                    printf("%s\n", val.as.string);
+                    break;
+                case VAL_BOOLEAN:
+                    printf("%s\n", val.as.boolean ? "true" : "false");
+                    break;
+                case VAL_NIL:
+                    printf("nil\n");
+                    break;
+            }
+            break;
+        }
+        
+        case AST_VAR_DECL:
+        {
+            RuntimeValue value = make_nil();
+            if (node->right)
+            {
+                value = eval_expression(node->right, env);
+                if (runtime_error_occurred) return;
+            }
+            env_set(env, node->value, value);
+            break;
+        }
+        
+        default:
+            break;
+    }
+}
+
+int eval_program(AstNode *program)
+{
+    Environment env = {0};
+    runtime_error_occurred = 0;
+    
+    for (size_t i = 0; i < program->statement_count && !runtime_error_occurred; i++)
+    {
+        eval_statement(program->statements[i], &env);
+    }
+    
+    return runtime_error_occurred ? 70 : 0;
 }
 
 void print_ast(AstNode *node)
@@ -700,302 +1003,6 @@ Tokens tokenize(const char *file_contents)
     return tokens;
 }
 
-typedef struct
-{
-    char *str;
-    TokenType type;
-    double number;
-} Token;
-
-#include <math.h>
-#define HASHMAP_SIZE 1000
-typedef struct Entry {
-    char* key;
-    Token* value;
-    struct Entry* next;
-} Entry;
-
-typedef struct HashMap {
-    Entry **entries;
-} HashMap;
-
-// Hash function using djb2 algorithm
-unsigned int hash(const char* str)
-{
-    unsigned int hash = 5381;
-    int c;
-    while ((c = *str++))
-        hash = ((hash << 5) + hash) + c;
-    
-    return hash % HASHMAP_SIZE;
-}
-
-Token *hashmap_get_token(HashMap *map, char *key)
-{
-    unsigned int index = hash(key);
-    Entry* current = map->entries[index];
-
-    while (current != NULL)
-    {
-        if (is_str_eq(current->key, key))
-        {
-            return current->value;
-        }
-        current = current->next;
-    }
-    return NULL;
-}
-
-// Create new hashmap
-HashMap* hashmap_create()
-{
-    HashMap *map = ARENA_ALLOC(arena, HashMap);
-    map->entries = ARENA_CALLOC_ARRAY(arena, Entry*, HASHMAP_SIZE);
-    return map;
-}
-void hashmap_put_token(HashMap *map, char *key, Token *value)
-{
-    uint32_t index = hash(key);
-    Entry *current = map->entries[index];
-    // Check if key already exists
-    while (current != NULL)
-    {
-        if (is_str_eq(current->key, key))
-        {
-            memcpy(current->value, value, sizeof(Entry));
-            return;
-        }
-        current = current->next;
-    }
-    
-    // Create new entry
-    Entry* newEntry = ARENA_ALLOC(arena, Entry);
-    assert(newEntry);
-    
-    newEntry->key = arena_strdup(arena, key);
-    newEntry->value = (Token*)ARENA_ALLOC(arena, Token);
-    memcpy(newEntry->value, value, sizeof(Token));
-    newEntry->next = map->entries[index];
-    map->entries[index] = newEntry;
-}
-HashMap *map;
-
-double eval_arith(AstNode *ast)
-{
-    if (ast->token_type == STRING || ast->token_type == TRUE || ast->token_type == FALSE || ast->token_type == NIL)
-    {
-        return NAN;
-    }
-    if (ast->token_type == NUMBER)
-    {
-        double number = strtod(ast->value, NULL);
-        return number;
-    }
-    if (ast->token_type == IDENTIFIER)
-    {
-        Token *val = hashmap_get_token(map, ast->value);
-        if (!val || val->type != NUMBER)
-            return NAN;
-        return val->number;
-    }
-
-    if (ast->type == AST_GROUPING)
-        return eval_arith(ast->left);
-
-    if (ast->type == AST_UNARY)
-    {
-        if (ast->token_type == BANG)
-            return NAN;
-        double number = eval_arith(ast->right);
-        return -number;
-    }
-
-    double a = eval_arith(ast->left);
-    double b = eval_arith(ast->right);
-    double result;
-    switch(ast->token_type)
-    {
-        case PLUS:  result = a+b; break;
-        case MINUS: result = a-b; break;
-        case STAR:  result = a*b; break;
-        case SLASH: result = a/b; break;
-        default: return NAN;
-    }
-    return result;
-}
-
-char *eval_str(AstNode *ast)
-{
-
-    if (ast->token_type != PLUS && ast->token_type != STRING && ast->type != AST_GROUPING)
-    {
-        return 0;
-    }
-
-    if (ast->token_type == STRING)
-    {
-        return ast->value;
-    }
-    if (ast->token_type == IDENTIFIER)
-    {
-        Token *val = hashmap_get_token(map, ast->value);
-        if (!val || val->type != STRING)
-            return 0;
-        return val->str;
-    }
-    if (ast->type == AST_GROUPING)
-        return eval_str(ast->left);
-
-    char *a = eval_str(ast->left);
-    char *b = eval_str(ast->right);
-    if (a==0 || b ==0)
-        return 0;
-    return arena_strcat(arena, a, b);
-}
-
-TokenType eval_boolean_expr(AstNode *ast)
-{
-    if (ast->type == AST_LITERAL)
-        return ast->token_type;
-    
-    if (ast->type == AST_GROUPING)
-        return eval_boolean_expr(ast->left);
-    
-    if (ast->type == AST_UNARY)
-    {
-        if (ast->token_type == MINUS)
-        {
-            fprintf(stderr, "Error: MINUS operator not supported in boolean context\n");
-            exit(99);
-        }
-        return eval_boolean_expr(ast->right) == TRUE ? FALSE : TRUE;
-    }
-
-    double a = eval_boolean_expr(ast->left);
-    double b = eval_boolean_expr(ast->right);
-
-    if (a == ERROR || b == ERROR || a == STRING || a == NUMBER || b == STRING || b == NUMBER)
-        return ERROR;
-
-    TokenType result;
-    switch(ast->token_type)
-    {
-        case EQUAL_EQUAL:  result = a==b?TRUE:FALSE; break;
-        case BANG_EQUAL:   result = a!=b?TRUE:FALSE; break;
-        default: return FALSE;
-    }
-    return result;
-}
-
-Token evaluate(AstNode *ast)
-{
-    TokenType token_type = ast->token_type;
-    
-    // ----------- [for inline debugger]-------------
-    AstNodeType type = ast->type;
-    AstNode *Left = ast->left;
-    AstNode *Right = ast->right;
-    // ----------- [for inline debugger]-------------
-        
-    if (token_type == TRUE || token_type == FALSE || token_type == NIL)
-        return (Token){.type = token_type, .str = NULL};
-
-    if (token_type == NUMBER || token_type == STRING || token_type == IDENTIFIER)
-    {
-        Token token = {.type = token_type, .str = ast->value};
-        if (token_type == NUMBER)
-            token.number = strtod(ast->value, NULL);
-        return token;
-    }
-
-    if (ast->type == AST_UNARY)
-    {
-        if (token_type == MINUS)
-        {
-            if (ast->right->token_type != NUMBER)
-            {
-                exit(70);
-            }
-            return (Token){.type = NUMBER, .number = -strtod(ast->right->value, NULL)};
-        }            
-        
-        if (token_type == BANG)
-        {
-            TokenType right_type = ast->right->token_type;
-            return (Token){.type = (right_type == TRUE) ? FALSE : TRUE, .str = NULL};
-        }
-    }
-    if (ast->type == AST_BINARY)
-    {
-         if (token_type == PLUS || token_type == MINUS || token_type == STAR || token_type == SLASH)
-         { 
-         	double number = eval_arith(ast);
-            if (!isnan(number)) // it's math operation and both oprands are numeric
-                return (Token){.type = NUMBER, .number = number};
-            
-            if (token_type != PLUS)
-            	exit(70);
-            
-            char *str = eval_str(ast);
-            if (str) // concatenation op on both string operands
-                return (Token){.type = STRING, .str = str};
-            
-            exit(70); // if above fails its an error
-         }
-
-        // from this point only comparision ops will be considered
-        double left_number = eval_arith(ast->left);
-        double right_number = eval_arith(ast->right);
-
-        if (!isnan(left_number) && !isnan(right_number)) // both oprands are numeric
-        {
-            int result;
-            switch (token_type)
-            {
-                case EQUAL_EQUAL:    result = (left_number == right_number); break;
-                case BANG_EQUAL:     result = (left_number != right_number); break;
-                case GREATER:        result = (left_number >  right_number); break;
-                case GREATER_EQUAL:  result = (left_number >= right_number); break;
-                case LESS:           result = (left_number <  right_number); break;
-                case LESS_EQUAL:     result = (left_number <= right_number); break;
-                default: fprintf(stderr, "[%s:%d] [Error]: Not supported operator ", __FILE__, __LINE__);
-                exit(99);
-            }
-            if (result)
-                return (Token){.type = TRUE};
-            else
-                return (Token){.type = FALSE};
-        }
-        // relation operations are not possible from here
-        if (token_type == GREATER || token_type == GREATER_EQUAL || token_type == LESS || token_type == LESS_EQUAL)
-            exit(70);
-
-        if (!isnan(left_number) || !isnan(right_number)) // either oprand is a number
-            return (Token){.type = FALSE};
-        
-        char* left_str = eval_str(ast->left);
-        char* right_str = eval_str(ast->right);
-
-        if (left_str && right_str)
-        {
-            int is_same = is_str_eq(left_str, right_str);
-            if ((is_same && token_type == EQUAL_EQUAL) || (!is_same && token_type == BANG_EQUAL))
-                return (Token){.type = TRUE};
-            else
-                return (Token){.type = FALSE};
-        }
-        if (left_str || right_str)
-            return (Token){.type = FALSE};
-
-        TokenType res = eval_boolean_expr(ast);
-        return (Token){.type = res};
-    }
-    
-    if (ast->type == AST_GROUPING)
-        return evaluate(ast->left);
-    
-    return (Token){.type = 0, .str = NULL};
-}
 
 int main(int argc, char *argv[])
 {
@@ -1080,19 +1087,12 @@ int main(int argc, char *argv[])
 
         Parser parser = {&tokens, 0, 0};
         AstNode *ast = parse_expression(&parser);
-
-        Token res = evaluate(ast);
-
-        if (res.type == STRING)
-            printf("%s\n", res.str);
-        else if (res.type == NUMBER)
-        {
-            printf("%g\n", res.number);
-        }
-        else
-        { 
-            printf("%s\n", reserved[res.type]);
-        }
+        
+        Environment env = {0};
+        AstNode *print = create_ast_node(AST_PRINT_STMT, PRINT, NULL);
+        print->left = ast;
+        eval_statement(print, &env);
+        return runtime_error_occurred ? 70 : 0;
 
     }
     else if (is_str_eq_n(command, "run", strlen("run")))
@@ -1105,67 +1105,12 @@ int main(int argc, char *argv[])
             return tokens.error;
 
         Parser parser = {&tokens, 0, 0};
-        AstNode *ast = parse_program(&parser);
+        AstNode *program = parse_program(&parser);
         if (parser.had_error)
             return 65;
 
-        map = hashmap_create();
-        for (int i = 0; i < ast->statement_count; ++i)
-        {            
-            AstNode *this = ast->statements[i];
-            if (this->token_type == VAR)
-            {
-                Token varname = evaluate(this->left);
-                Token value = {.type= NIL};
-                if (this->left->left)
-                {
-                    value = evaluate(this->left->left);   
-                }
-                 
-                if (value.type == IDENTIFIER)
-                {
-                    Token *actual_value = hashmap_get_token(map, value.str);
-                    if (!actual_value)
-                    {
-                        fprintf(stderr, "var err\n");
-                        return 70;
-                    }
-                    value = *actual_value;
-                }
-                
-                hashmap_put_token(map, varname.str, &value);
-                continue;
-            }
-            Token res = evaluate(this->left);
-
-            if (this->token_type != PRINT)
-                continue;
-
-            if (res.type == IDENTIFIER)
-            {
-                Token *val = hashmap_get_token(map, res.str);
-                if (!val)
-                {
-                    fprintf(stderr, "var err\n");
-                    return 70;
-                }
-                res = *val;
-            }
-            if (res.type == STRING)
-                printf("%s\n", res.str);
-            else if (res.type == NUMBER)
-            {
-                printf("%g\n", res.number);
-            }
-            else if (res.type == NIL)
-            {
-                printf("nil\n");
-            }
-            else
-            {
-                printf("%s\n", reserved[res.type]);
-            }
-        }
+        int result = eval_program(program);
+        return result;
     }
     else
     {
