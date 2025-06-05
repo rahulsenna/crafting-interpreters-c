@@ -93,7 +93,8 @@ typedef enum AstNodeType
     AST_EXPRESSION_STMT,
     AST_VAR_DECL,
     AST_PROGRAM,
-    AST_BLOCK
+    AST_BLOCK,
+    AST_MULTI_STMT
 } AstNodeType;
 
 typedef struct AstNode
@@ -142,6 +143,7 @@ typedef struct
     Precedence precedence;
 } ParseRule;
 
+AstNode* parse_statement(Parser *parser);
 AstNode* parse_expression(Parser *parser);
 AstNode* parse_precedence(Parser *parser, Precedence precedence);
 static inline ParseRule *get_rule(TokenType type);
@@ -424,21 +426,41 @@ static AstNode* parse_expression_statement(Parser *parser)
     return stmt;
 }
 
-AstNode* parse_statement(Parser *parser, AstNode *program)
+static AstNode* parse_block(Parser *parser)
+{
+    AstNode *block = create_ast_node(AST_BLOCK, LEFT_BRACE, NULL);
+    
+    while (!match(parser, RIGHT_BRACE))
+    {
+        if (is_at_end(parser))
+            error_at_current(parser, "missing closing brace }");
+
+        AstNode *stmt = parse_statement(parser);
+        if (stmt)
+            add_statement(block, stmt);
+        
+        if (parser->had_error)
+            break;
+    }
+    return block;
+}
+
+AstNode* parse_statement(Parser *parser)
 {
     if (match(parser, PRINT))
     {
         if (peek(parser) == IDENTIFIER && peek_next(parser) == EQUAL)
         { 
-            AstNode *var = parse_var_declaration(parser);
-            if (var)
-            {
-                add_statement(program, var);
-                AstNode *stmt = create_ast_node(AST_PRINT_STMT, PRINT, NULL);
-                AstNode *ID = create_ast_node(AST_VARIABLE, VAR, var->value);
-                stmt->left = ID;
-                return stmt;
-            }
+            AstNode *var_assign = parse_var_declaration(parser);
+            AstNode *print_stmt = create_ast_node(AST_PRINT_STMT, PRINT, NULL);
+            AstNode *var = create_ast_node(AST_VARIABLE, VAR, var_assign->value);
+            print_stmt->left = var;
+            
+            AstNode *multi = create_ast_node(AST_MULTI_STMT, TOKEN_EOF, NULL);
+            add_statement(multi, var_assign);
+            add_statement(multi, print_stmt);
+            return multi;
+            
         }
         return parse_print_statement(parser);
     }
@@ -446,6 +468,11 @@ AstNode* parse_statement(Parser *parser, AstNode *program)
     if (match(parser, VAR))
     {
         return parse_var_declaration(parser);
+    }
+
+    if (match(parser, LEFT_BRACE))
+    {
+        return parse_block(parser);
     }
     
     return parse_expression_statement(parser);
@@ -457,7 +484,7 @@ AstNode* parse_program(Parser *parser)
 
     while (!is_at_end(parser) && !parser->had_error)
     {
-        AstNode *stmt = parse_statement(parser, program);
+        AstNode *stmt = parse_statement(parser);
         if (stmt)
         {
             add_statement(program, stmt);
@@ -507,8 +534,17 @@ typedef struct VarEntry
 
 typedef struct Environment
 {
-    VarEntry *table[VAR_TABLE_SIZE];
+    VarEntry **table;
+    struct Environment *enclosing; // Parent scope
 } Environment;
+
+static Environment* create_environment(Environment *enclosing)
+{
+    Environment *env = ARENA_ALLOC(arena, Environment);
+    env->table = ARENA_CALLOC_ARRAY(arena, VarEntry*, VAR_TABLE_SIZE);
+    env->enclosing = enclosing;
+    return env;
+}
 
 static unsigned int hash_string(const char *str)
 {
@@ -741,6 +777,19 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
     return make_nil();
 }
 
+static void eval_statement(AstNode *node, Environment *env);
+
+static void eval_block(AstNode *block, Environment *env)
+{
+    Environment *block_env = create_environment(env);
+    
+    for (size_t i = 0; i < block->statement_count && !runtime_error_occurred; i++)
+    {
+        eval_statement(block->statements[i], block_env);
+    }
+}
+
+
 static void eval_statement(AstNode *node, Environment *env)
 {
     if (!node || runtime_error_occurred) return;
@@ -758,18 +807,10 @@ static void eval_statement(AstNode *node, Environment *env)
             
             switch (val.type)
             {
-                case VAL_NUMBER:
-                    printf("%.6g\n", val.as.number);
-                    break;
-                case VAL_STRING:
-                    printf("%s\n", val.as.string);
-                    break;
-                case VAL_BOOLEAN:
-                    printf("%s\n", val.as.boolean ? "true" : "false");
-                    break;
-                case VAL_NIL:
-                    printf("nil\n");
-                    break;
+                case VAL_NUMBER:  printf("%.6g\n", val.as.number);                   break;
+                case VAL_STRING:  printf("%s\n", val.as.string);                     break;
+                case VAL_BOOLEAN: printf("%s\n", val.as.boolean ? "true" : "false"); break;
+                case VAL_NIL:     printf("nil\n");                                   break;
             }
             break;
         }
@@ -785,7 +826,12 @@ static void eval_statement(AstNode *node, Environment *env)
             env_set(env, node->value, value);
             break;
         }
+        case AST_BLOCK: eval_block(node, env); break;
         
+        case AST_MULTI_STMT:
+            for (int i = 0; i < node->statement_count; ++i)
+                eval_statement(node->statements[i], env);
+            break;
         default:
             break;
     }
@@ -793,12 +839,12 @@ static void eval_statement(AstNode *node, Environment *env)
 
 int eval_program(AstNode *program)
 {
-    Environment env = {0};
+    Environment *global_env = create_environment(NULL); // Global scope
     runtime_error_occurred = 0;
     
     for (size_t i = 0; i < program->statement_count && !runtime_error_occurred; i++)
     {
-        eval_statement(program->statements[i], &env);
+        eval_statement(program->statements[i], global_env);
     }
     
     return runtime_error_occurred ? 70 : 0;
