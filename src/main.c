@@ -579,6 +579,25 @@ static void env_set(Environment *env, const char *name, RuntimeValue value)
     env->table[index] = new_entry;
 }
 
+static void env_assign(Environment *env, const char *name, RuntimeValue value)
+{
+    unsigned int index = hash_string(name);
+    VarEntry *entry = env->table[index];
+    
+    while (entry)
+    {
+        if (is_str_eq(entry->name, (char*)name))
+        {
+            entry->value = value;
+            return;
+        }
+        entry = entry->next;
+    }
+
+    if (env->enclosing)
+        env_assign(env->enclosing, name, value);
+}
+
 static RuntimeValue* env_get(Environment *env, const char *name)
 {
     unsigned int index = hash_string(name);
@@ -592,6 +611,9 @@ static RuntimeValue* env_get(Environment *env, const char *name)
         }
         entry = entry->next;
     }
+
+    if (env->enclosing)
+        return env_get(env->enclosing, name);
     
     return NULL; // Variable not found
 }
@@ -766,7 +788,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
         {
             RuntimeValue value = eval_expression(node->right, env);
             if (runtime_error_occurred) return make_nil();
-            env_set(env, node->left->value, value);
+            env_assign(env, node->left->value, value);
             return value;
         }
         
