@@ -296,7 +296,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             env_assign(env, node->left->value, value);
             return value;
         }
-        
+
         default:
             break;
     }
@@ -359,6 +359,21 @@ static void eval_statement(AstNode *node, Environment *env)
             for (int i = 0; i < node->statement_count; ++i)
                 eval_statement(node->statements[i], env);
             break;
+
+        case AST_IF_STMT:
+        {
+            while (node->left)
+            {
+                RuntimeValue value = eval_expression(node->left, env);
+                if (is_truthy(value))
+                {
+                    eval_statement(node->right, env);
+                    break;
+                }
+                node = node->left;
+            }
+            break;
+        }
         default:
             break;
     }

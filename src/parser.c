@@ -73,7 +73,8 @@ typedef enum AstNodeType
     AST_VAR_DECL,
     AST_PROGRAM,
     AST_BLOCK,
-    AST_MULTI_STMT
+    AST_MULTI_STMT,
+    AST_IF_STMT
 } AstNodeType;
 
 typedef struct AstNode
@@ -251,6 +252,17 @@ static inline AstNode *parse_unary(Parser *parser)
 static inline AstNode* parse_grouping(Parser *parser)
 {
     AstNode *expr = parse_expression(parser);
+
+    if (match(parser, EQUAL))
+    {
+        AstNode *value = parse_expression(parser);
+        consume(parser, RIGHT_PAREN, "Expected ')' after expression");
+
+        AstNode *assign = create_ast_node(AST_ASSIGNMENT, EQUAL, NULL);
+        assign->left = expr;
+        assign->right = value;
+        return assign;
+    }
     consume(parser, RIGHT_PAREN, "Expected ')' after expression");
 
     AstNode *node = create_ast_node(AST_GROUPING, LEFT_PAREN, NULL);
@@ -424,6 +436,17 @@ static AstNode* parse_block(Parser *parser)
     return block;
 }
 
+AstNode* parse_if_statement(Parser *parser)
+{
+    AstNode *if_expr = parse_expression(parser);
+    AstNode *if_block = parse_statement(parser);
+
+    AstNode *if_stmt = create_ast_node(AST_IF_STMT, IF, NULL);
+    if_stmt->left = if_expr;
+    if_stmt->right = if_block;
+
+    return if_stmt;
+}
 AstNode* parse_statement(Parser *parser)
 {
     if (match(parser, PRINT))
@@ -453,7 +476,10 @@ AstNode* parse_statement(Parser *parser)
     {
         return parse_block(parser);
     }
-    
+    if (match(parser, IF))
+    {
+        return parse_if_statement(parser);
+    }   
     return parse_expression_statement(parser);
 }
 
