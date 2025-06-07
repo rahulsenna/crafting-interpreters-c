@@ -362,15 +362,14 @@ static void eval_statement(AstNode *node, Environment *env)
 
         case AST_IF_STMT:
         {
-            while (node->left)
+            for (int i = 0; i < node->statement_count; ++i)
             {
-                RuntimeValue value = eval_expression(node->left, env);
+                RuntimeValue value = eval_expression(node->statements[i]->left, env);
                 if (is_truthy(value))
                 {
-                    eval_statement(node->right, env);
+                    eval_statement(node->statements[i]->right, env);
                     break;
                 }
-                node = node->left;
             }
             break;
         }

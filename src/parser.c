@@ -441,9 +441,27 @@ AstNode* parse_if_statement(Parser *parser)
     AstNode *if_expr = parse_expression(parser);
     AstNode *if_block = parse_statement(parser);
 
+    AstNode *stmt = create_ast_node(AST_IF_STMT, IF, NULL);
+    stmt->left = if_expr;
+    stmt->right = if_block;
+    
     AstNode *if_stmt = create_ast_node(AST_IF_STMT, IF, NULL);
-    if_stmt->left = if_expr;
-    if_stmt->right = if_block;
+
+    add_statement(if_stmt, stmt);
+
+    while (match(parser, ELSE))
+    {        
+        AstNode *else_expr = create_ast_node(AST_LITERAL, TRUE, NULL);
+        if (match(parser, IF))
+            else_expr = parse_expression(parser);
+
+        AstNode *else_block = parse_statement(parser);
+        
+        AstNode *stmt = create_ast_node(AST_IF_STMT, ELSE, NULL);
+        stmt->left = else_expr;
+        stmt->right = else_block;
+        add_statement(if_stmt, stmt);
+    }
 
     return if_stmt;
 }
