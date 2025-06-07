@@ -166,6 +166,29 @@ static int is_truthy(RuntimeValue val)
 
 static RuntimeValue eval_binary(AstNode *node, Environment *env)
 {
+    if (node->token_type == OR)
+    {
+        RuntimeValue left = eval_expression(node->left, env);
+        if (is_truthy(left)) // short-circuit
+            return left;
+        RuntimeValue right = eval_expression(node->right, env);
+        if (is_truthy(right))
+            return right;
+
+        return make_boolean(0);
+    }
+
+    if (node->token_type == AND)
+    {
+        RuntimeValue left = eval_expression(node->left, env);
+        if (!is_truthy(left)) // short-circuit
+            return make_boolean(0);
+        RuntimeValue right = eval_expression(node->right, env);
+        if (is_truthy(left) && is_truthy(right))
+            return right;
+        return make_boolean(0);
+    }
+
     RuntimeValue left = eval_expression(node->left, env);
     if (runtime_error_occurred) return make_nil();
     
