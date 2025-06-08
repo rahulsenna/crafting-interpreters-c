@@ -482,22 +482,22 @@ AstNode *parse_while_loop(Parser *parser)
 AstNode *parse_for_loop(Parser *parser)
 {
     consume(parser, LEFT_PAREN, "Expected '('");
-    AstNode *decl = NULL;
+    AstNode *initializer = NULL;
     if (!match(parser, SEMICOLON))
     {
-        decl = parse_statement(parser);
+        initializer = parse_statement(parser);
     }
-    AstNode *test = NULL;
+    AstNode *condition = NULL;
     if (!match(parser, SEMICOLON))
     {
-        test = parse_expression(parser);
+        condition = parse_expression(parser);
         consume(parser, SEMICOLON, "Expected ';'");
     }
-    AstNode *change = NULL;
+    AstNode *update = NULL;
     if (!match(parser, RIGHT_PAREN))
     {
-        change = create_ast_node(AST_EXPRESSION_STMT, SEMICOLON, NULL);
-        change->left = parse_assignment(parser);
+        update = create_ast_node(AST_EXPRESSION_STMT, SEMICOLON, NULL);
+        update->left = parse_assignment(parser);
         consume(parser, RIGHT_PAREN, "Expected ')'");
     }
 
@@ -505,9 +505,13 @@ AstNode *parse_for_loop(Parser *parser)
 
     AstNode *loop = create_ast_node(AST_FOR_LOOP, FOR, NULL);
     loop->right = block;
-    add_statement(loop, decl);
-    add_statement(loop, test);
-    add_statement(loop, change);
+    if (block->type == AST_VAR_DECL && block->right == NULL)
+    {
+        error_at_current(parser, "Error at 'var': Expect expression.");
+    }
+    add_statement(loop, initializer);
+    add_statement(loop, condition);
+    add_statement(loop, update);
     return loop;
 }
 
