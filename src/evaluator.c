@@ -396,6 +396,27 @@ static void eval_statement(AstNode *node, Environment *env)
             }
             break;
         }
+        case AST_WHILE_LOOP:
+        {
+            while (is_truthy(eval_expression(node->left, env)))
+            {
+                eval_statement(node->right, env);
+            }
+            break;
+        }
+        case AST_FOR_LOOP:
+        {
+            for (
+                eval_statement(node->statements[0], env);
+                is_truthy(eval_expression(node->statements[1], env));
+                eval_statement(node->statements[2], env)
+            )
+            {
+                eval_statement(node->right, env);
+            }
+            break;
+        }
+
         default:
             break;
     }

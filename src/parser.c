@@ -74,7 +74,9 @@ typedef enum AstNodeType
     AST_PROGRAM,
     AST_BLOCK,
     AST_MULTI_STMT,
-    AST_IF_STMT
+    AST_IF_STMT,
+    AST_WHILE_LOOP,
+    AST_FOR_LOOP
 } AstNodeType;
 
 typedef struct AstNode
@@ -465,6 +467,50 @@ AstNode* parse_if_statement(Parser *parser)
 
     return if_stmt;
 }
+
+AstNode *parse_while_loop(Parser *parser)
+{
+    AstNode *while_expr = parse_expression(parser);
+    AstNode *while_block = parse_statement(parser);
+
+    AstNode *loop = create_ast_node(AST_WHILE_LOOP, WHILE, NULL);
+    loop->left = while_expr;
+    loop->right = while_block;
+    return loop;
+}
+
+AstNode *parse_for_loop(Parser *parser)
+{
+    consume(parser, LEFT_PAREN, "Expected '('");
+    AstNode *decl = NULL;
+    if (!match(parser, SEMICOLON))
+    {
+        decl = parse_statement(parser);
+    }
+    AstNode *test = NULL;
+    if (!match(parser, SEMICOLON))
+    {
+        test = parse_expression(parser);
+        consume(parser, SEMICOLON, "Expected ';'");
+    }
+    AstNode *change = NULL;
+    if (!match(parser, RIGHT_PAREN))
+    {
+        change = create_ast_node(AST_EXPRESSION_STMT, SEMICOLON, NULL);
+        change->left = parse_assignment(parser);
+        consume(parser, RIGHT_PAREN, "Expected ')'");
+    }
+
+    AstNode *block = parse_statement(parser);
+
+    AstNode *loop = create_ast_node(AST_FOR_LOOP, FOR, NULL);
+    loop->right = block;
+    add_statement(loop, decl);
+    add_statement(loop, test);
+    add_statement(loop, change);
+    return loop;
+}
+
 AstNode* parse_statement(Parser *parser)
 {
     if (match(parser, PRINT))
@@ -497,7 +543,15 @@ AstNode* parse_statement(Parser *parser)
     if (match(parser, IF))
     {
         return parse_if_statement(parser);
-    }   
+    }
+    if (match(parser, WHILE))
+    {
+        return parse_while_loop(parser);
+    }
+    if (match(parser, FOR))
+    {
+        return parse_for_loop(parser);
+    }
     return parse_expression_statement(parser);
 }
 
