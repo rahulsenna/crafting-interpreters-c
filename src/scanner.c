@@ -4,8 +4,8 @@ Tokens tokenize(const char *file_contents)
     const size_t file_len = strlen(file_contents);
 
     Tokens tokens = {.size = 0, .error = 0};
-    tokens.IDs = ARENA_CALLOC_ARRAY(arena, uint8_t, 1000000);
-    tokens.data = ARENA_CALLOC_ARRAY(arena, char*, 1000000);
+    tokens.IDs = ARENA_CALLOC_ARRAY(arena, uint8_t, file_len);
+    tokens.data = ARENA_CALLOC_ARRAY(arena, char*, file_len);
 
     for (size_t i = 0; i < file_len; ++i)
     {

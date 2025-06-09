@@ -370,9 +370,13 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
 
     if (left->token_type == IDENTIFIER && match(parser, LEFT_PAREN))
     {
-        consume(parser, RIGHT_PAREN, "Expected ')'");
-
         AstNode *func_call = create_ast_node(AST_FUNC_CALL, IDENTIFIER, NULL);
+        while(!match(parser, RIGHT_PAREN))
+        {
+            AstNode* arg = parse_expression(parser);
+            add_statement(func_call, arg);
+            match(parser, COMMA);
+        }
         func_call->left = left;
         left = func_call;
     }
@@ -553,8 +557,8 @@ AstNode* parse_function_declaration(Parser *parser)
     AstNode *block = parse_statement(parser);
 
     AstNode *func = create_ast_node(AST_FUNC_DECL, FUN, NULL);
-    func->left = block;
-    func->value = func_name->left->value;
+    func->left = func_name;
+    func->right = block;
     return func;
 };
 
@@ -969,7 +973,16 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             else
             {
                 RuntimeValue *func = env_get(env, func_name);
-                eval_statement(func->as.function_ptr, env);
+                ArenaScope scope = arena_scope_begin(arena);
+                Environment *stack_params_env = create_environment(env);
+                for (int i = 0; i < node->statement_count; i++)
+                {
+                    RuntimeValue val = eval_expression(node->statements[i], stack_params_env);
+                    char *param_name = func->as.function_ptr->left->statements[i]->value;
+                    env_set(stack_params_env, param_name, val);
+                }
+                eval_statement(func->as.function_ptr->right, stack_params_env);
+                arena_scope_end(arena, scope);
             }
             return make_nil();
         }
@@ -1016,7 +1029,7 @@ static void eval_statement(AstNode *node, Environment *env)
                 case VAL_STRING:  printf("%s\n", val.as.string);                     break;
                 case VAL_BOOLEAN: printf("%s\n", val.as.boolean ? "true" : "false"); break;
                 case VAL_NIL:     printf("nil\n");                                   break;
-                case VAL_FUNCTION:printf("<fn %s>\n", node->left->value);            break;
+                case VAL_FUNCTION:printf("<fn %s>\n", val.as.function_ptr->left->left->value);            break;
             }
             break;
         }
@@ -1074,9 +1087,8 @@ static void eval_statement(AstNode *node, Environment *env)
         }
         case AST_FUNC_DECL:
         {
-            char *function_name = node->value;
-            AstNode *function_block = node->left;
-            RuntimeValue function_val = make_function(function_block);
+            char *function_name = node->left->left->value;
+            RuntimeValue function_val = make_function(node);
             env_set(env, function_name, function_val);
             break;
         }
