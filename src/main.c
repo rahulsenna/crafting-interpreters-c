@@ -374,8 +374,15 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
         while(!match(parser, RIGHT_PAREN))
         {
             AstNode* arg = parse_expression(parser);
+            if (parser->had_error)
+                break;
             add_statement(func_call, arg);
-            match(parser, COMMA);
+            if (!match(parser, COMMA))
+            {
+                if (!match(parser, RIGHT_PAREN))
+                    error_at_current(parser, "missing comma ,");
+                break;
+            }
         }
         func_call->left = left;
         left = func_call;
@@ -554,7 +561,8 @@ AstNode *parse_for_loop(Parser *parser)
 AstNode* parse_function_declaration(Parser *parser)
 {
     AstNode *func_name = parse_expression(parser);
-    AstNode *block = parse_statement(parser);
+    consume(parser, LEFT_BRACE, "Expected '{'");
+    AstNode *block = parse_block(parser);
 
     AstNode *func = create_ast_node(AST_FUNC_DECL, FUN, NULL);
     func->left = func_name;
