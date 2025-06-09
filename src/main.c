@@ -100,6 +100,7 @@ typedef enum AstNodeType
     AST_WHILE_LOOP,
     AST_FOR_LOOP,
     AST_FUNC_CALL,
+    AST_FUNC_DECL,
 } AstNodeType;
 
 typedef struct AstNode
@@ -546,6 +547,16 @@ AstNode *parse_for_loop(Parser *parser)
     add_statement(loop, update);
     return loop;
 }
+AstNode* parse_function_declaration(Parser *parser)
+{
+    AstNode *func_name = parse_expression(parser);
+    AstNode *block = parse_statement(parser);
+
+    AstNode *func = create_ast_node(AST_FUNC_DECL, FUN, NULL);
+    func->left = block;
+    func->value = func_name->left->value;
+    return func;
+};
 
 AstNode* parse_statement(Parser *parser)
 {
@@ -588,6 +599,11 @@ AstNode* parse_statement(Parser *parser)
     {
         return parse_for_loop(parser);
     }
+    if (match(parser, FUN))
+    {
+        return parse_function_declaration(parser);
+    }
+
     return parse_expression_statement(parser);
 }
 
@@ -613,6 +629,7 @@ typedef union Value
     double number;
     char* string;
     int boolean;
+    AstNode *function_ptr;
 } Value;
 
 typedef enum ValueType
@@ -620,6 +637,7 @@ typedef enum ValueType
     VAL_NUMBER,
     VAL_STRING, 
     VAL_BOOLEAN,
+    VAL_FUNCTION,
     VAL_NIL
 } ValueType;
 
@@ -751,6 +769,13 @@ static RuntimeValue make_boolean(int value)
     val.as.boolean = value;
     return val;
 }
+static RuntimeValue make_function(AstNode *value)
+{
+    RuntimeValue val;
+    val.type = VAL_FUNCTION;
+    val.as.function_ptr = value;
+    return val;
+}
 
 static RuntimeValue make_nil()
 {
@@ -852,6 +877,7 @@ static RuntimeValue eval_binary(AstNode *node, Environment *env)
             case VAL_BOOLEAN: return make_boolean(left.as.boolean == right.as.boolean);
             case VAL_STRING: return make_boolean(strcmp(left.as.string, right.as.string) == 0);
             case VAL_NIL: return make_boolean(1); // nil == nil is true
+            default: return make_nil();
         }
     }
     if (node->token_type == BANG_EQUAL)
@@ -864,6 +890,7 @@ static RuntimeValue eval_binary(AstNode *node, Environment *env)
             case VAL_BOOLEAN: return make_boolean(left.as.boolean != right.as.boolean);
             case VAL_STRING: return make_boolean(strcmp(left.as.string, right.as.string) != 0);
             case VAL_NIL: return make_boolean(0); // nil != nil is false
+            default: return make_nil();
         }
     }
 
@@ -890,6 +917,8 @@ static RuntimeValue eval_unary(AstNode *node, Environment *env)
             return make_nil();
     }
 }
+
+static void eval_statement(AstNode *node, Environment *env);
 
 static RuntimeValue eval_expression(AstNode *node, Environment *env)
 {
@@ -937,6 +966,11 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                 time_t t = time(NULL);
                 return make_number(t);
             }
+            else
+            {
+                RuntimeValue *func = env_get(env, func_name);
+                eval_statement(func->as.function_ptr, env);
+            }
             return make_nil();
         }
 
@@ -947,7 +981,6 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
     return make_nil();
 }
 
-static void eval_statement(AstNode *node, Environment *env);
 
 static void eval_block(AstNode *block, Environment *env)
 {
@@ -983,6 +1016,7 @@ static void eval_statement(AstNode *node, Environment *env)
                 case VAL_STRING:  printf("%s\n", val.as.string);                     break;
                 case VAL_BOOLEAN: printf("%s\n", val.as.boolean ? "true" : "false"); break;
                 case VAL_NIL:     printf("nil\n");                                   break;
+                case VAL_FUNCTION:printf("<fn %s>\n", node->left->value);            break;
             }
             break;
         }
@@ -1036,6 +1070,14 @@ static void eval_statement(AstNode *node, Environment *env)
             {
                 eval_statement(node->right, env);
             }
+            break;
+        }
+        case AST_FUNC_DECL:
+        {
+            char *function_name = node->value;
+            AstNode *function_block = node->left;
+            RuntimeValue function_val = make_function(function_block);
+            env_set(env, function_name, function_val);
             break;
         }
 
