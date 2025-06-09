@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdint.h>
+#include <time.h>
 
 #include "arena.h"
 Arena *arena;
@@ -97,7 +98,8 @@ typedef enum AstNodeType
     AST_MULTI_STMT,
     AST_IF_STMT,
     AST_WHILE_LOOP,
-    AST_FOR_LOOP
+    AST_FOR_LOOP,
+    AST_FUNC_CALL,
 } AstNodeType;
 
 typedef struct AstNode
@@ -364,6 +366,15 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
     }
 
     AstNode *left = prefix_rule(parser);
+
+    if (left->token_type == IDENTIFIER && match(parser, LEFT_PAREN))
+    {
+        consume(parser, RIGHT_PAREN, "Expected ')'");
+
+        AstNode *func_call = create_ast_node(AST_FUNC_CALL, IDENTIFIER, NULL);
+        func_call->left = left;
+        left = func_call;
+    }
 
     while (precedence <= get_rule(peek(parser))->precedence)
     {
@@ -918,6 +929,16 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             env_assign(env, node->left->value, value);
             return value;
         }
+        case AST_FUNC_CALL:
+        {
+            char *func_name = node->left->value;
+            if (is_str_eq(func_name, "clock"))
+            {
+                time_t t = time(NULL);
+                return make_number(t);
+            }
+            return make_nil();
+        }
 
         default:
             break;
@@ -930,12 +951,14 @@ static void eval_statement(AstNode *node, Environment *env);
 
 static void eval_block(AstNode *block, Environment *env)
 {
+    ArenaScope scope = arena_scope_begin(arena);
     Environment *block_env = create_environment(env);
     
     for (size_t i = 0; i < block->statement_count && !runtime_error_occurred; i++)
     {
         eval_statement(block->statements[i], block_env);
     }
+    arena_scope_end(arena, scope);
 }
 
 

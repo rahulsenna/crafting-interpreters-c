@@ -72,6 +72,7 @@ static inline void *arena_alloc_aligned(Arena *arena, size_t size, size_t alignm
 
     if (aligned_offset + size > arena->size)
     {
+        assert(0);
         return NULL; // Out of memory
     }
 
