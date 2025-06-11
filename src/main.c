@@ -101,6 +101,7 @@ typedef enum AstNodeType
     AST_FOR_LOOP,
     AST_FUNC_CALL,
     AST_FUNC_DECL,
+    AST_RETURN_STMT,
 } AstNodeType;
 
 typedef struct AstNode
@@ -616,6 +617,20 @@ AstNode* parse_statement(Parser *parser)
         return parse_function_declaration(parser);
     }
 
+    if (match(parser, RETURN))
+    {
+        AstNode *return_stmt = create_ast_node(AST_RETURN_STMT, RETURN, NULL);
+        if (match(parser, SEMICOLON))
+        {
+            return return_stmt;
+        }
+        AstNode *expr = parse_expression(parser);
+        consume(parser, SEMICOLON, "Expected ';' after print statement");
+        return_stmt->left = expr;
+        return return_stmt;
+    }
+
+
     return parse_expression_statement(parser);
 }
 
@@ -861,7 +876,7 @@ static RuntimeValue eval_binary(AstNode *node, Environment *env)
     if (node->token_type == MINUS && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
         return make_number(left.as.number - right.as.number);
     
-        if (node->token_type == STAR && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
+    if (node->token_type == STAR && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
         return make_number(left.as.number * right.as.number);
 
     if (node->token_type == SLASH && (left.type == VAL_NUMBER && right.type == VAL_NUMBER))
@@ -931,6 +946,7 @@ static RuntimeValue eval_unary(AstNode *node, Environment *env)
 }
 
 static void eval_statement(AstNode *node, Environment *env);
+int runtime_return = 0;
 
 static RuntimeValue eval_expression(AstNode *node, Environment *env)
 {
@@ -983,16 +999,23 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                 RuntimeValue *func = env_get(env, func_name);
                 ArenaScope scope = arena_scope_begin(arena);
                 Environment *stack_params_env = create_environment(env);
-                for (int i = 0; i < node->statement_count; i++)
+                for (int i = 0; i < node->statement_count; i++) // setting parameters on stack
                 {
                     RuntimeValue val = eval_expression(node->statements[i], stack_params_env);
                     char *param_name = func->as.function_ptr->left->statements[i]->value;
                     env_set(stack_params_env, param_name, val);
                 }
                 eval_statement(func->as.function_ptr->right, stack_params_env);
+                RuntimeValue return_val = make_nil();
+                if (runtime_return)
+                {
+                    return_val = *env_get(stack_params_env, "return");
+                    runtime_return = 0;
+                }
                 arena_scope_end(arena, scope);
+                return return_val;
             }
-            return make_nil();
+            
         }
 
         default:
@@ -1011,6 +1034,15 @@ static void eval_block(AstNode *block, Environment *env)
     for (size_t i = 0; i < block->statement_count && !runtime_error_occurred; i++)
     {
         eval_statement(block->statements[i], block_env);
+        if (runtime_return)
+        {
+            break;
+        }
+    }
+    if (runtime_return)
+    {
+        RuntimeValue *return_val = env_get(block_env, "return");
+        env_set(env, "return", *return_val); 
     }
     arena_scope_end(arena, scope);
 }
@@ -1075,7 +1107,7 @@ static void eval_statement(AstNode *node, Environment *env)
         }
         case AST_WHILE_LOOP:
         {
-            while (is_truthy(eval_expression(node->left, env)))
+            while (is_truthy(eval_expression(node->left, env)) && runtime_return == 0)
             {
                 eval_statement(node->right, env);
             }
@@ -1089,6 +1121,8 @@ static void eval_statement(AstNode *node, Environment *env)
                 eval_statement(node->statements[2], env)
             )
             {
+                if (runtime_return)
+                	break;
                 eval_statement(node->right, env);
             }
             break;
@@ -1100,6 +1134,14 @@ static void eval_statement(AstNode *node, Environment *env)
             env_set(env, function_name, function_val);
             break;
         }
+        case AST_RETURN_STMT:
+        {
+            RuntimeValue return_val = eval_expression(node->left, env);
+            env_set(env, "return", return_val);
+            runtime_return = 1;
+            break;
+        }
+
 
         default:
             break;
@@ -1129,14 +1171,14 @@ void print_ast(AstNode *node)
         case AST_LITERAL:
             if (node->token_type == STRING) 
                 printf("%s", node->value);
-             else if (node->token_type == NUMBER)
-             {
+            else if (node->token_type == NUMBER)
+            {
                 double num = strtod(node->value, NULL);
                 if (num == (int)num) 
                     printf("%.1f", num);
-                 else 
+                else 
                     printf("%g", num);   
-             } else 
+            } else 
                 printf("%s", reserved[node->token_type]);
             
             break;
