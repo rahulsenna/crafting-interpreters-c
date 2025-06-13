@@ -201,6 +201,9 @@ static inline void arena_scope_end(Arena *arena, ArenaScope scope)
 #define ARENA_ALLOC(arena, type) \
     ((type*)arena_alloc(arena, sizeof(type)))
 
+#define ARENA_CALLOC(arena, type) \
+    ((type*)arena_calloc(arena, 1, sizeof(type)))
+
 #define ARENA_ALLOC_ARRAY(arena, type, count) \
     ((type*)arena_alloc(arena, sizeof(type) * (count)))
 

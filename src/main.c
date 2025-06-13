@@ -625,6 +625,25 @@ AstNode* parse_statement(Parser *parser)
             return return_stmt;
         }
         AstNode *expr = parse_expression(parser);
+        if (match(parser, LEFT_PAREN))
+        {
+            AstNode *func_call = create_ast_node(AST_FUNC_CALL, IDENTIFIER, NULL);
+            while(!match(parser, RIGHT_PAREN))
+            {
+                AstNode* arg = parse_expression(parser);
+                if (parser->had_error)
+                    break;
+                add_statement(func_call, arg);
+                if (!match(parser, COMMA))
+                {
+                    if (!match(parser, RIGHT_PAREN))
+                        error_at_current(parser, "missing comma ,");
+                    break;
+                }
+            }
+            func_call->left = expr;
+            expr = func_call;
+        }
         consume(parser, SEMICOLON, "Expected ';' after print statement");
         return_stmt->left = expr;
         return return_stmt;
@@ -668,10 +687,20 @@ typedef enum ValueType
     VAL_NIL
 } ValueType;
 
+struct RuntimeValue;
+typedef struct
+{
+    char **keys;
+    struct RuntimeValue **values;
+    int total;
+
+} EnvStore;
+
 typedef struct RuntimeValue
 {
     ValueType type;
     Value as;
+    EnvStore *closure;
 } RuntimeValue;
 
 // Runtime error handling
@@ -801,6 +830,7 @@ static RuntimeValue make_function(AstNode *value)
     RuntimeValue val;
     val.type = VAL_FUNCTION;
     val.as.function_ptr = value;
+    val.closure = 0;
     return val;
 }
 
@@ -988,7 +1018,15 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
         }
         case AST_FUNC_CALL:
         {
-            char *func_name = node->left->value;
+            char *func_name;
+            if (node->left->type == AST_FUNC_CALL)
+            {
+                RuntimeValue val = eval_expression(node->left, env);
+                func_name = val.as.function_ptr->left->left->value;
+            }
+            else
+                func_name= node->left->value;
+
             if (is_str_eq(func_name, "clock"))
             {
                 time_t t = time(NULL);
@@ -1005,12 +1043,36 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                     char *param_name = func->as.function_ptr->left->statements[i]->value;
                     env_set(stack_params_env, param_name, val);
                 }
+                if (func->closure)
+                {
+                    for (int i = 0; i < func->closure->total; ++i)
+                        env_set(stack_params_env, func->closure->keys[i], *func->closure->values[i]);
+                }
                 eval_statement(func->as.function_ptr->right, stack_params_env);
                 RuntimeValue return_val = make_nil();
                 if (runtime_return)
                 {
                     return_val = *env_get(stack_params_env, "return");
                     runtime_return = 0;
+                    if (return_val.type == VAL_FUNCTION)
+                    {
+                        arena_scope_end(arena, scope);
+                        EnvStore *closure = ARENA_CALLOC(arena, EnvStore);
+                        closure->keys = ARENA_CALLOC_ARRAY(arena, char*, node->statement_count);
+                        closure->values = ARENA_CALLOC_ARRAY(arena, RuntimeValue*, node->statement_count);
+                        // getting all params from the parent function to closure
+                        for (int i = 0; i < node->statement_count; i++)
+                        {
+                            RuntimeValue val = eval_expression(node->statements[i], env);
+                            char *param_name = func->as.function_ptr->left->statements[i]->value;
+                            closure->keys[i] = arena_strdup(arena, param_name);
+                            closure->values[i] = ARENA_ALLOC(arena, RuntimeValue);
+                            memcpy(closure->values[i] , &val, sizeof(RuntimeValue));
+                            closure->total++;
+                        }
+                        return_val.closure = closure;
+                        return return_val;
+                    }
                 }
                 arena_scope_end(arena, scope);
                 return return_val;

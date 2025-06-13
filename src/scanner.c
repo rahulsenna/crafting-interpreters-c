@@ -130,7 +130,7 @@ Tokens tokenize(const char *file_contents)
                     int is_keyword = 0;
                     for (int k = 0; k < 16; ++k) // first 16 enums are keywords
                     {
-                        if (is_str_eq_n(reserved[k], word, strlen(reserved[k])))
+                        if (is_str_eq(reserved[k], word))
                         {
                             tokens.IDs[tokens.size++] = k;
                             is_keyword = 1;
