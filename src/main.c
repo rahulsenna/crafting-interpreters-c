@@ -357,6 +357,26 @@ static inline ParseRule *get_rule(TokenType type)
     return &rules[type];
 }
 
+AstNode *parse_func_call(Parser *parser)
+{
+    AstNode *func_call = create_ast_node(AST_FUNC_CALL, IDENTIFIER, NULL);
+    while (!match(parser, RIGHT_PAREN))
+    {
+        AstNode *arg = parse_expression(parser);
+        if (parser->had_error)
+            break;
+        add_statement(func_call, arg);
+        if (!match(parser, COMMA))
+        {
+            if (!match(parser, RIGHT_PAREN))
+                error_at_current(parser, "missing comma ,");
+            break;
+        }
+    }
+
+    return func_call;
+}
+
 AstNode *parse_precedence(Parser *parser, Precedence precedence)
 {
     advance(parser);
@@ -369,22 +389,9 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
 
     AstNode *left = prefix_rule(parser);
 
-    if (left->token_type == IDENTIFIER && match(parser, LEFT_PAREN))
+    if (match(parser, LEFT_PAREN))
     {
-        AstNode *func_call = create_ast_node(AST_FUNC_CALL, IDENTIFIER, NULL);
-        while(!match(parser, RIGHT_PAREN))
-        {
-            AstNode* arg = parse_expression(parser);
-            if (parser->had_error)
-                break;
-            add_statement(func_call, arg);
-            if (!match(parser, COMMA))
-            {
-                if (!match(parser, RIGHT_PAREN))
-                    error_at_current(parser, "missing comma ,");
-                break;
-            }
-        }
+        AstNode *func_call = parse_func_call(parser);
         func_call->left = left;
         left = func_call;
     }
@@ -401,7 +408,15 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
 
 AstNode *parse_expression(Parser *parser)
 {
-    return parse_precedence(parser, PREC_ASSIGNMENT);
+    AstNode *expr = parse_precedence(parser, PREC_ASSIGNMENT);
+    if (match(parser, LEFT_PAREN))
+    {
+        AstNode *func_call = parse_func_call(parser);
+        func_call->left = expr;
+        return func_call;
+    }
+    
+    return expr;
 }
 
 AstNode* parse_assignment(Parser *parser)
@@ -625,25 +640,6 @@ AstNode* parse_statement(Parser *parser)
             return return_stmt;
         }
         AstNode *expr = parse_expression(parser);
-        if (match(parser, LEFT_PAREN))
-        {
-            AstNode *func_call = create_ast_node(AST_FUNC_CALL, IDENTIFIER, NULL);
-            while(!match(parser, RIGHT_PAREN))
-            {
-                AstNode* arg = parse_expression(parser);
-                if (parser->had_error)
-                    break;
-                add_statement(func_call, arg);
-                if (!match(parser, COMMA))
-                {
-                    if (!match(parser, RIGHT_PAREN))
-                        error_at_current(parser, "missing comma ,");
-                    break;
-                }
-            }
-            func_call->left = expr;
-            expr = func_call;
-        }
         consume(parser, SEMICOLON, "Expected ';' after print statement");
         return_stmt->left = expr;
         return return_stmt;
@@ -1026,6 +1022,11 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             }
             else
                 func_name= node->left->value;
+            if (func_name == NULL)
+            {
+                runtime_error("Can only call functions and classes.");
+                return make_nil();
+            }
 
             if (is_str_eq(func_name, "clock"))
             {
@@ -1035,6 +1036,18 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             else
             {
                 RuntimeValue *func = env_get(env, func_name);
+                if (func == NULL)
+                {
+                    runtime_error("Can only call functions and classes.");
+                    return make_nil();
+                }
+                if (node->statement_count != func->as.function_ptr->left->statement_count)
+                {
+                    char msg[1024];
+                    sprintf(msg, "Expected %zu arguments but got %zu.", func->as.function_ptr->left->statement_count, node->statement_count);
+                    runtime_error(msg);
+                    return make_nil();
+                }
                 ArenaScope scope = arena_scope_begin(arena);
                 Environment *stack_params_env = create_environment(env);
                 for (int i = 0; i < node->statement_count; i++) // setting parameters on stack
