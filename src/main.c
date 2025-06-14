@@ -802,6 +802,34 @@ static RuntimeValue* env_get(Environment *env, const char *name)
     
     return NULL; // Variable not found
 }
+typedef struct
+{
+	RuntimeValue* val;
+	Environment* env;
+} ValAndScope;
+
+static ValAndScope* env_get_with_scope(Environment *env, const char *name)
+{
+    unsigned int index = hash_string(name);
+    VarEntry *entry = env->table[index];
+    
+    while (entry)
+    {
+        if (is_str_eq(entry->name, (char*)name))
+        {
+            ValAndScope *res = ARENA_ALLOC(arena, ValAndScope);
+            res->val = &entry->value;
+            res->env = env;
+            return res;
+        }
+        entry = entry->next;
+    }
+
+    if (env->enclosing)
+        return env_get_with_scope(env->enclosing, name);
+    
+    return NULL; // Variable not found
+}
 
 // Evaluation functions
 static RuntimeValue eval_expression(AstNode *node, Environment *env);
@@ -998,7 +1026,9 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             RuntimeValue *val = env_get(env, node->value);
             if (val)
                 return *val;
-            runtime_error("Undefined variable");
+            char msg[1024];
+            sprintf(msg, "Undefined variable: %s", node->value);
+            runtime_error(msg);
             return make_nil();
         }
         
@@ -1035,12 +1065,13 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             }
             else
             {
-                RuntimeValue *func = env_get(env, func_name);
-                if (func == NULL)
+                ValAndScope *func_and_scope = env_get_with_scope(env, func_name);
+                if (func_and_scope == NULL)
                 {
                     runtime_error("Can only call functions and classes.");
                     return make_nil();
                 }
+                RuntimeValue *func = func_and_scope->val;
                 if (node->statement_count != func->as.function_ptr->left->statement_count)
                 {
                     char msg[1024];
@@ -1048,11 +1079,16 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                     runtime_error(msg);
                     return make_nil();
                 }
+                                
+                Environment *func_env = env;
+                if (func_and_scope->env)
+                    func_env = func_and_scope->env;
+                
                 ArenaScope scope = arena_scope_begin(arena);
-                Environment *stack_params_env = create_environment(env);
+                Environment *stack_params_env = create_environment(func_env);
                 for (int i = 0; i < node->statement_count; i++) // setting parameters on stack
                 {
-                    RuntimeValue val = eval_expression(node->statements[i], stack_params_env);
+                    RuntimeValue val = eval_expression(node->statements[i], env);
                     char *param_name = func->as.function_ptr->left->statements[i]->value;
                     env_set(stack_params_env, param_name, val);
                 }
