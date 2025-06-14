@@ -684,19 +684,13 @@ typedef enum ValueType
 } ValueType;
 
 struct RuntimeValue;
-typedef struct
-{
-    char **keys;
-    struct RuntimeValue **values;
-    int total;
 
-} EnvStore;
-
+struct Environment;
 typedef struct RuntimeValue
 {
     ValueType type;
     Value as;
-    EnvStore *closure;
+    struct Environment *closure;
 } RuntimeValue;
 
 // Runtime error handling
@@ -1083,21 +1077,31 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                 Environment *func_env = env;
                 if (func_and_scope->env)
                     func_env = func_and_scope->env;
-                
-                ArenaScope scope = arena_scope_begin(arena);
-                Environment *stack_params_env = create_environment(func_env);
+
+                Environment *stack_params_env;
+                ArenaScope scope = {.saved_offset = 0};
+                if (func->closure)
+                    stack_params_env = func->closure;
+                else
+                {
+                    scope = arena_scope_begin(arena);
+                    stack_params_env = create_environment(func_env);
+                }
+
                 for (int i = 0; i < node->statement_count; i++) // setting parameters on stack
                 {
                     RuntimeValue val = eval_expression(node->statements[i], env);
                     char *param_name = func->as.function_ptr->left->statements[i]->value;
                     env_set(stack_params_env, param_name, val);
                 }
-                if (func->closure)
+                if (scope.saved_offset == 0)
+                    scope = arena_scope_begin(arena);
+                for (size_t i = 0; i < func->as.function_ptr->right->statement_count && !runtime_error_occurred; i++)
                 {
-                    for (int i = 0; i < func->closure->total; ++i)
-                        env_set(stack_params_env, func->closure->keys[i], *func->closure->values[i]);
+                    eval_statement(func->as.function_ptr->right->statements[i], stack_params_env);
+                    if (runtime_return)
+                        break;
                 }
-                eval_statement(func->as.function_ptr->right, stack_params_env);
                 RuntimeValue return_val = make_nil();
                 if (runtime_return)
                 {
@@ -1105,21 +1109,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                     runtime_return = 0;
                     if (return_val.type == VAL_FUNCTION)
                     {
-                        arena_scope_end(arena, scope);
-                        EnvStore *closure = ARENA_CALLOC(arena, EnvStore);
-                        closure->keys = ARENA_CALLOC_ARRAY(arena, char*, node->statement_count);
-                        closure->values = ARENA_CALLOC_ARRAY(arena, RuntimeValue*, node->statement_count);
-                        // getting all params from the parent function to closure
-                        for (int i = 0; i < node->statement_count; i++)
-                        {
-                            RuntimeValue val = eval_expression(node->statements[i], env);
-                            char *param_name = func->as.function_ptr->left->statements[i]->value;
-                            closure->keys[i] = arena_strdup(arena, param_name);
-                            closure->values[i] = ARENA_ALLOC(arena, RuntimeValue);
-                            memcpy(closure->values[i] , &val, sizeof(RuntimeValue));
-                            closure->total++;
-                        }
-                        return_val.closure = closure;
+                        return_val.closure = stack_params_env;
                         return return_val;
                     }
                 }
