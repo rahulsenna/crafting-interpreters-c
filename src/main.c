@@ -115,6 +115,7 @@ typedef struct AstNode
     struct AstNode **statements;
     size_t statement_count;
     size_t statement_capacity;
+    size_t scope_depth;
 } AstNode;
 
 // Parser state
@@ -167,6 +168,7 @@ AstNode *create_ast_node(AstNodeType type, TokenType token_type, char *value)
     node->statements = NULL;
     node->statement_count = 0;
     node->statement_capacity = 0;
+    node->scope_depth = INT64_MAX;
     return node;
 }
 
@@ -796,14 +798,39 @@ static RuntimeValue* env_get(Environment *env, const char *name)
     
     return NULL; // Variable not found
 }
+
+static size_t env_get_depth(Environment *env, const char *name, size_t depth)
+{
+    unsigned int index = hash_string(name);
+    VarEntry *entry = env->table[index];
+    while (entry)
+    {
+        if (is_str_eq(entry->name, (char *)name))
+            return depth;
+
+        entry = entry->next;
+    }
+
+    if (env->enclosing)
+        return env_get_depth(env->enclosing, name, depth + 1);
+
+    return INT64_MAX; // Variable not found
+}
+static inline Environment *set_env_depth(Environment *env, size_t depth)
+{
+    for (size_t i = 0; i < depth; ++i)
+        env = env->enclosing;
+    return env;
+}
 typedef struct
 {
 	RuntimeValue* val;
 	Environment* env;
 } ValAndScope;
 
-static ValAndScope* env_get_with_scope(Environment *env, const char *name)
+static ValAndScope *env_get_with_scope(Environment *env, const char *name, size_t depth)
 {
+    env = set_env_depth(env, depth);
     unsigned int index = hash_string(name);
     VarEntry *entry = env->table[index];
     
@@ -817,11 +844,7 @@ static ValAndScope* env_get_with_scope(Environment *env, const char *name)
             return res;
         }
         entry = entry->next;
-    }
-
-    if (env->enclosing)
-        return env_get_with_scope(env->enclosing, name);
-    
+    }    
     return NULL; // Variable not found
 }
 
@@ -1017,7 +1040,11 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             
         case AST_VARIABLE:
         {
-            RuntimeValue *val = env_get(env, node->value);
+
+            if (node->scope_depth == INT64_MAX)
+                node->scope_depth = env_get_depth(env, node->value, 0);
+            RuntimeValue *val = node->scope_depth == INT64_MAX ? NULL :
+                env_get(set_env_depth(env, node->scope_depth), node->value);
             if (val)
                 return *val;
             char msg[1024];
@@ -1033,7 +1060,9 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
         {
             RuntimeValue value = eval_expression(node->right, env);
             if (runtime_error_occurred) return make_nil();
-            env_assign(env, node->left->value, value);
+            if (node->scope_depth == INT64_MAX)
+                node->scope_depth = env_get_depth(env, node->left->value, 0);
+            env_assign(set_env_depth(env, node->scope_depth), node->left->value, value);
             return value;
         }
         case AST_FUNC_CALL:
@@ -1059,8 +1088,11 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             }
             else
             {
-                ValAndScope *func_and_scope = env_get_with_scope(env, func_name);
-                if (func_and_scope == NULL)
+                if (node->scope_depth == INT64_MAX)
+                    node->scope_depth = env_get_depth(env, func_name, 0);
+                ValAndScope *func_and_scope = node->scope_depth == INT64_MAX ? NULL :
+                    env_get_with_scope(env, func_name, node->scope_depth);
+                if (func_and_scope == NULL || node->scope_depth == INT64_MAX)
                 {
                     runtime_error("Can only call functions and classes.");
                     return make_nil();
