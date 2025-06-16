@@ -491,6 +491,16 @@ static AstNode* parse_block(Parser *parser)
             error_at_current(parser, "missing closing brace }");
 
         AstNode *stmt = parse_statement(parser);
+        if (stmt && stmt->type == AST_VAR_DECL)
+        {
+            if (stmt->right->type == AST_VARIABLE)
+                if (is_str_eq(stmt->right->value, stmt->value))
+                    error_at_current(parser, "Attempting to declare local var initialized");
+
+            if (stmt->right->type == AST_FUNC_CALL && stmt->right->statement_count)
+                if (is_str_eq(stmt->right->statements[0]->value, stmt->value))
+                    error_at_current(parser, "Attempting to declare local var initialized");
+        }
         if (stmt)
             add_statement(block, stmt);
         
