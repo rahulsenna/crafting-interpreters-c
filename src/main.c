@@ -491,16 +491,6 @@ static AstNode* parse_block(Parser *parser)
             error_at_current(parser, "missing closing brace }");
 
         AstNode *stmt = parse_statement(parser);
-        if (stmt && stmt->type == AST_VAR_DECL)
-        {
-            if (stmt->right->type == AST_VARIABLE)
-                if (is_str_eq(stmt->right->value, stmt->value))
-                    error_at_current(parser, "Attempting to declare local var initialized");
-
-            if (stmt->right->type == AST_FUNC_CALL && stmt->right->statement_count)
-                if (is_str_eq(stmt->right->statements[0]->value, stmt->value))
-                    error_at_current(parser, "Attempting to declare local var initialized");
-        }
         if (stmt)
             add_statement(block, stmt);
         
@@ -1349,6 +1339,109 @@ void print_ast(AstNode *node)
 
 #include "scanner.c"
 
+int var_exist(char **vars, size_t var_cnt, char *looking_for)
+{
+    for (size_t i = 0; i < var_cnt; ++i)
+    {
+        if (is_str_eq(looking_for, vars[i]))
+            return 1;
+    }
+    return 0;
+}
+
+void analyze_block(AstNode *node, Parser *parser)
+{
+    if (parser->had_error)
+        return;
+    char **var_names = ARENA_CALLOC_ARRAY(arena, char *, 100);
+    size_t var_name_cnt = 0;
+    int in_func = 0;
+    AstNode *block = 0;
+    if (node->type == AST_BLOCK)
+        block = node;
+    else if (node->type == AST_IF_STMT)
+    {
+        for (int i = 0; i < node->statement_count; ++i)
+        {
+            AstNode *stmt = node->statements[i];
+            if (stmt->right->type == AST_RETURN_STMT)
+            {
+                error_at_current(parser, "return");
+                return;
+            }
+            if (stmt->right->type != AST_BLOCK)
+                continue;
+            analyze_block(stmt->right, parser);
+        }
+        return;
+    }
+    else
+    {
+        in_func = 1;
+        for (int i = 0; i < node->left->statement_count; ++i)
+        {
+            if (var_exist(var_names, var_name_cnt, node->left->statements[i]->value))
+            {
+                error_at_current(parser, "Function parameters must have unique names");
+                return;
+            }
+            var_names[var_name_cnt++] = node->left->statements[i]->value;
+        }
+        block = node->right;
+    }
+
+    for (int i = 0; i < block->statement_count; ++i)
+    {
+        AstNode *stmt = block->statements[i];
+        if (stmt->type == AST_RETURN_STMT && !in_func)
+        {
+            error_at_current(parser, "Return statements are not allowed outside of functions");
+            return;
+        }
+        if (stmt->type == AST_BLOCK || stmt->type == AST_FUNC_DECL || (stmt->type == AST_IF_STMT && !in_func))
+            analyze_block(stmt, parser);
+
+        if (stmt && stmt->type == AST_VAR_DECL)
+        {
+            if (stmt->right && stmt->right->type == AST_VARIABLE && is_str_eq(stmt->right->value, stmt->value))
+                error_at_current(parser, "Attempting to declare local var initialized");
+
+            if (stmt->right && stmt->right->type == AST_FUNC_CALL && stmt->right->statement_count &&
+                is_str_eq(stmt->right->statements[0]->value, stmt->value))
+                error_at_current(parser, "Attempting to declare local var initialized");
+
+            if (parser->had_error)
+                return;
+
+            if (var_exist(var_names, var_name_cnt, stmt->value))
+            {
+                error_at_current(parser, "Attempting to redeclare in local scope");
+                return;
+            }
+            var_names[var_name_cnt++] = stmt->value;
+        }
+    }
+}
+
+void analyze(AstNode *program, Parser *parser)
+{
+    ArenaScope scope = arena_scope_begin(arena);
+    for (size_t i = 0; i < program->statement_count && !parser->had_error; i++)
+    {
+        if (program->statements[i]->type == AST_BLOCK ||
+            program->statements[i]->type == AST_FUNC_DECL ||
+            program->statements[i]->type == AST_IF_STMT)
+        {
+            AstNode *block = program->statements[i];
+            analyze_block(block, parser);
+        }
+
+        if (program->statements[i]->type == AST_RETURN_STMT)
+            error_at_current(parser, "Return statements are not allowed at the top level");
+    }
+    arena_scope_end(arena, scope);
+}
+
 int main(int argc, char *argv[])
 {
     arena = arena_init(ARENA_DEFAULT_SIZE);
@@ -1451,6 +1544,7 @@ int main(int argc, char *argv[])
 
         Parser parser = {&tokens, 0, 0};
         AstNode *program = parse_program(&parser);
+        analyze(program, &parser);
         if (parser.had_error)
             return 65;
 
