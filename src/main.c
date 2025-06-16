@@ -684,7 +684,7 @@ typedef union Value
     double number;
     char* string;
     int boolean;
-    AstNode *function_ptr;
+    AstNode *node;
 } Value;
 
 typedef enum ValueType
@@ -694,6 +694,7 @@ typedef enum ValueType
     VAL_BOOLEAN,
     VAL_FUNCTION,
     VAL_CLASS,
+    VAL_CLASS_INST,
     VAL_NIL
 } ValueType;
 
@@ -882,7 +883,7 @@ static RuntimeValue make_function(AstNode *value)
 {
     RuntimeValue val;
     val.type = VAL_FUNCTION;
-    val.as.function_ptr = value;
+    val.as.node = value;
     val.closure = 0;
     return val;
 }
@@ -891,8 +892,15 @@ static RuntimeValue make_class(AstNode *value)
 {
     RuntimeValue val;
     val.type = VAL_CLASS;
-    val.as.function_ptr = value;
-    val.closure = 0;
+    val.as.node = value;
+    return val;
+}
+
+static RuntimeValue make_class_inst(AstNode *value)
+{
+    RuntimeValue val;
+    val.type = VAL_CLASS_INST;
+    val.as.node = value;
     return val;
 }
 
@@ -1092,7 +1100,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             if (node->left->type == AST_FUNC_CALL)
             {
                 RuntimeValue val = eval_expression(node->left, env);
-                func_name = val.as.function_ptr->left->left->value;
+                func_name = val.as.node->left->left->value;
             }
             else
                 func_name= node->left->value;
@@ -1119,10 +1127,15 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                     return make_nil();
                 }
                 RuntimeValue *func = func_and_scope->val;
-                if (node->statement_count != func->as.function_ptr->left->statement_count)
+                if (func->type == VAL_CLASS)
+                {
+                    return make_class_inst(func->as.node);
+                }
+
+                if (node->statement_count != func->as.node->left->statement_count)
                 {
                     char msg[1024];
-                    sprintf(msg, "Expected %zu arguments but got %zu.", func->as.function_ptr->left->statement_count, node->statement_count);
+                    sprintf(msg, "Expected %zu arguments but got %zu.", func->as.node->left->statement_count, node->statement_count);
                     runtime_error(msg);
                     return make_nil();
                 }
@@ -1144,14 +1157,14 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                 for (int i = 0; i < node->statement_count; i++) // setting parameters on stack
                 {
                     RuntimeValue val = eval_expression(node->statements[i], env);
-                    char *param_name = func->as.function_ptr->left->statements[i]->value;
+                    char *param_name = func->as.node->left->statements[i]->value;
                     env_set(stack_params_env, param_name, val);
                 }
                 if (scope.saved_offset == 0)
                     scope = arena_scope_begin(arena);
-                for (size_t i = 0; i < func->as.function_ptr->right->statement_count && !runtime_error_occurred; i++)
+                for (size_t i = 0; i < func->as.node->right->statement_count && !runtime_error_occurred; i++)
                 {
-                    eval_statement(func->as.function_ptr->right->statements[i], stack_params_env);
+                    eval_statement(func->as.node->right->statements[i], stack_params_env);
                     if (runtime_return)
                         break;
                 }
@@ -1219,12 +1232,13 @@ static void eval_statement(AstNode *node, Environment *env)
             
             switch (val.type)
             {
-                case VAL_NUMBER:  printf("%.10g\n", val.as.number);                   break;
-                case VAL_STRING:  printf("%s\n", val.as.string);                     break;
-                case VAL_BOOLEAN: printf("%s\n", val.as.boolean ? "true" : "false"); break;
-                case VAL_NIL:     printf("nil\n");                                   break;
-                case VAL_FUNCTION:printf("<fn %s>\n", val.as.function_ptr->left->left->value);            break;
-                case VAL_CLASS:   printf("%s\n", val.as.function_ptr->left->value);  break;
+                case VAL_NUMBER:      printf("%.10g\n", val.as.number);                      break;
+                case VAL_STRING:      printf("%s\n", val.as.string);                         break;
+                case VAL_BOOLEAN:     printf("%s\n", val.as.boolean ? "true" : "false");     break;
+                case VAL_NIL:         printf("nil\n");                                       break;
+                case VAL_FUNCTION:    printf("<fn %s>\n", val.as.node->left->left->value);   break;
+                case VAL_CLASS:       printf("%s\n", val.as.node->left->value);              break;
+                case VAL_CLASS_INST:  printf("%s instance\n", val.as.node->left->value);     break;
             }
             break;
         }
