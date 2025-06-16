@@ -102,6 +102,7 @@ typedef enum AstNodeType
     AST_FUNC_CALL,
     AST_FUNC_DECL,
     AST_RETURN_STMT,
+    AST_CLASS_DECL,
 } AstNodeType;
 
 typedef struct AstNode
@@ -646,6 +647,16 @@ AstNode* parse_statement(Parser *parser)
         return_stmt->left = expr;
         return return_stmt;
     }
+    if (match(parser, CLASS))
+    {
+        AstNode *class_name = parse_expression(parser);
+        consume(parser, LEFT_BRACE, "Expected '{'");
+        AstNode *block = parse_block(parser);
+        AstNode *class = create_ast_node(AST_CLASS_DECL, CLASS, NULL);
+        class->left = class_name;
+        class->right = block;
+        return class;
+    }
 
 
     return parse_expression_statement(parser);
@@ -682,6 +693,7 @@ typedef enum ValueType
     VAL_STRING, 
     VAL_BOOLEAN,
     VAL_FUNCTION,
+    VAL_CLASS,
     VAL_NIL
 } ValueType;
 
@@ -870,6 +882,15 @@ static RuntimeValue make_function(AstNode *value)
 {
     RuntimeValue val;
     val.type = VAL_FUNCTION;
+    val.as.function_ptr = value;
+    val.closure = 0;
+    return val;
+}
+
+static RuntimeValue make_class(AstNode *value)
+{
+    RuntimeValue val;
+    val.type = VAL_CLASS;
     val.as.function_ptr = value;
     val.closure = 0;
     return val;
@@ -1203,6 +1224,7 @@ static void eval_statement(AstNode *node, Environment *env)
                 case VAL_BOOLEAN: printf("%s\n", val.as.boolean ? "true" : "false"); break;
                 case VAL_NIL:     printf("nil\n");                                   break;
                 case VAL_FUNCTION:printf("<fn %s>\n", val.as.function_ptr->left->left->value);            break;
+                case VAL_CLASS:   printf("%s\n", val.as.function_ptr->left->value);  break;
             }
             break;
         }
@@ -1265,6 +1287,13 @@ static void eval_statement(AstNode *node, Environment *env)
             char *function_name = node->left->left->value;
             RuntimeValue function_val = make_function(node);
             env_set(env, function_name, function_val);
+            break;
+        }
+        case AST_CLASS_DECL:
+        {
+            char *class_name = node->left->value;
+            RuntimeValue class_val = make_class(node);
+            env_set(env, class_name, class_val);
             break;
         }
         case AST_RETURN_STMT:
