@@ -103,6 +103,7 @@ typedef enum AstNodeType
     AST_FUNC_DECL,
     AST_RETURN_STMT,
     AST_CLASS_DECL,
+    AST_PROPERTY,
 } AstNodeType;
 
 typedef struct AstNode
@@ -391,6 +392,13 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
     }
 
     AstNode *left = prefix_rule(parser);
+    if (match(parser, DOT))
+    {
+        consume(parser, IDENTIFIER, "error");
+        AstNode *property = prefix_rule(parser);
+        left->type = AST_PROPERTY;
+        left->left = property;
+    }
 
     if (match(parser, LEFT_PAREN))
     {
@@ -430,7 +438,7 @@ AstNode* parse_assignment(Parser *parser)
     {
         AstNode *value = parse_assignment(parser); // Right-associative
         
-        if (expr->type == AST_VARIABLE)
+        if (expr->type == AST_VARIABLE || expr->type == AST_PROPERTY)
         {
             AstNode *assign = create_ast_node(AST_ASSIGNMENT, EQUAL, NULL);
             assign->left = expr;  // Variable being assigned to
@@ -705,7 +713,7 @@ typedef struct RuntimeValue
 {
     ValueType type;
     Value as;
-    struct Environment *closure;
+    struct Environment *env;
 } RuntimeValue;
 
 // Runtime error handling
@@ -884,7 +892,7 @@ static RuntimeValue make_function(AstNode *value)
     RuntimeValue val;
     val.type = VAL_FUNCTION;
     val.as.node = value;
-    val.closure = 0;
+    val.env = 0;
     return val;
 }
 
@@ -901,6 +909,7 @@ static RuntimeValue make_class_inst(AstNode *value)
     RuntimeValue val;
     val.type = VAL_CLASS_INST;
     val.as.node = value;
+    val.env = create_environment(0);
     return val;
 }
 
@@ -1088,11 +1097,23 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
         case AST_ASSIGNMENT:
         {
             RuntimeValue value = eval_expression(node->right, env);
+            if (node->left->type == AST_PROPERTY)
+            {
+                RuntimeValue *inst = env_get(env, node->left->value);
+                env_set(inst->env, node->left->left->value, value);
+                return value;
+            }
             if (runtime_error_occurred) return make_nil();
             if (node->scope_depth == INT64_MAX)
                 node->scope_depth = env_get_depth(env, node->left->value, 0);
             env_assign(set_env_depth(env, node->scope_depth), node->left->value, value);
             return value;
+        }
+        case AST_PROPERTY:
+        {
+            RuntimeValue *inst = env_get(env, node->value);
+            RuntimeValue *val = env_get(inst->env, node->left->value);
+            return *val;
         }
         case AST_FUNC_CALL:
         {
@@ -1146,8 +1167,8 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
 
                 Environment *stack_params_env;
                 ArenaScope scope = {.saved_offset = 0};
-                if (func->closure)
-                    stack_params_env = func->closure;
+                if (func->env)
+                    stack_params_env = func->env;
                 else
                 {
                     scope = arena_scope_begin(arena);
@@ -1175,7 +1196,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                     runtime_return = 0;
                     if (return_val.type == VAL_FUNCTION)
                     {
-                        return_val.closure = stack_params_env;
+                        return_val.env = stack_params_env;
                         return return_val;
                     }
                 }
