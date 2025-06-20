@@ -1,3 +1,17 @@
+#include "arena.h"
+#include "scanner.h"
+
+char *reserved[] = {
+    "and", "class", "else", "false", "for", "fun", "if", "nil", "or", "print", "return", "super", "this", "true", "var", "while",
+    "(", ")", "{", "}", "*", ".", ",", "+", "-", ";",
+    "==", "=", "!=", "!", "<=", "<", ">=", ">", "/", "", "", "", "EOF",
+};
+char *reservedU[] = {
+    "AND", "CLASS", "ELSE", "FALSE", "FOR", "FUN", "IF", "NIL", "OR", "PRINT", "RETURN", "SUPER", "THIS", "TRUE", "VAR", "WHILE",
+    "LEFT_PAREN", "RIGHT_PAREN", "LEFT_BRACE", "RIGHT_BRACE", "STAR", "DOT", "COMMA", "PLUS", "MINUS", "SEMICOLON", 
+    "EQUAL_EQUAL", "EQUAL", "BANG_EQUAL", "BANG", "LESS_EQUAL", "LESS", "GREATER_EQUAL", "GREATER", "SLASH", "STRING", "NUMBER", "IDENTIFIER", "EOF",
+};
+
 Tokens tokenize(const char *file_contents)
 {
     size_t line_number = 1;
