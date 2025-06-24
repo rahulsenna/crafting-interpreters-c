@@ -28,7 +28,7 @@ static unsigned int hash_string(const char *str)
     return hash % VAR_TABLE_SIZE;
 }
 
-static void env_set(Environment *env, const char *name, RuntimeValue value)
+static void env_set_with_arena(Environment *env, const char *name, RuntimeValue value, Arena *target_arena)
 {
     unsigned int index = hash_string(name);
     VarEntry *entry = env->table[index];
@@ -45,12 +45,21 @@ static void env_set(Environment *env, const char *name, RuntimeValue value)
     }
     
     // Create new entry
-    // VarEntry *new_entry = ARENA_ALLOC(arena, VarEntry);
-    VarEntry *new_entry = calloc(1, sizeof(VarEntry));
+    VarEntry *new_entry = ARENA_ALLOC(target_arena, VarEntry);
     new_entry->name = (char*)name;
     new_entry->value = value;
     new_entry->next = env->table[index];
     env->table[index] = new_entry;
+}
+
+static void env_set(Environment *env, const char *name, RuntimeValue value)
+{
+    env_set_with_arena(env, name, value, arena);
+}
+Arena *obj_arena;
+static void env_set_obj(Environment *env, const char *name, RuntimeValue value)
+{
+    env_set_with_arena(env, name, value, obj_arena);
 }
 
 static void env_assign(Environment *env, const char *name, RuntimeValue value)
@@ -375,7 +384,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             if (node->left->type == AST_PROPERTY)
             {
                 RuntimeValue *inst = env_get(env, node->left->left->value);
-                env_set(inst->env, node->left->right->value, value);
+                env_set_obj(inst->env, node->left->right->value, value);
                 return value;
             }
             if (runtime_error_occurred) return make_nil();
@@ -400,7 +409,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                     RuntimeValue val = eval_expression(node->right->statements[i], env);
                     node->right->statements[i]->scope_depth = INT64_MAX; // reseting scope depth
                     char *param_name = func->as.node->left->statements[i]->value;
-                    env_set(inst.env, param_name, val);
+                    env_set_obj(inst.env, param_name, val);
                 }
                 val = eval_expression(node->right, inst.env);
             }
@@ -642,6 +651,7 @@ void eval_statement(AstNode *node, Environment *env)
 int eval_program(AstNode *program)
 {
     Environment *global_env = create_environment(NULL); // Global scope
+    obj_arena = arena_init(ARENA_DEFAULT_SIZE);
     runtime_error_occurred = 0;
     
     for (size_t i = 0; i < program->statement_count && !runtime_error_occurred; i++)
