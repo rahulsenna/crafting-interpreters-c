@@ -235,19 +235,25 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
     }
 
     AstNode *left = prefix_rule(parser);
-    if (match(parser, DOT))
-    {
-        consume(parser, IDENTIFIER, "error");
-        AstNode *property = prefix_rule(parser);
-        left->type = AST_PROPERTY;
-        left->left = property;
-    }
-
     if (match(parser, LEFT_PAREN))
     {
         AstNode *func_call = parse_func_call(parser);
         func_call->left = left;
         left = func_call;
+    }
+    if (match(parser, DOT))
+    {
+        consume(parser, IDENTIFIER, "error");
+        AstNode *property = create_ast_node(AST_PROPERTY, DOT, NULL);
+        property->left = left; // instance
+        property->right = prefix_rule(parser);
+        if (match(parser, LEFT_PAREN))
+        {
+            AstNode *func_call = parse_func_call(parser);
+            func_call->left = property->right;
+            property->right = func_call;
+        }
+        left = property;
     }
 
     while (precedence <= get_rule(peek(parser))->precedence)
@@ -440,6 +446,25 @@ AstNode* parse_function_declaration(Parser *parser)
     return func;
 };
 
+static AstNode* parse_class_block(Parser *parser)
+{
+    AstNode *block = create_ast_node(AST_BLOCK, LEFT_BRACE, NULL);
+    
+    while (!match(parser, RIGHT_BRACE))
+    {
+        if (is_at_end(parser))
+            error_at_current(parser, "missing closing brace }");
+
+        AstNode *method = parse_function_declaration(parser);
+        if (method)
+            add_statement(block, method);
+        
+        if (parser->had_error)
+            break;
+    }
+    return block;
+}
+
 AstNode* parse_statement(Parser *parser)
 {
     if (match(parser, PRINT))
@@ -502,7 +527,7 @@ AstNode* parse_statement(Parser *parser)
     {
         AstNode *class_name = parse_expression(parser);
         consume(parser, LEFT_BRACE, "Expected '{'");
-        AstNode *block = parse_block(parser);
+        AstNode *block = parse_class_block(parser);
         AstNode *class = create_ast_node(AST_CLASS_DECL, CLASS, NULL);
         class->left = class_name;
         class->right = block;
