@@ -172,7 +172,8 @@ static RuntimeValue make_function(AstNode *value)
 {
     RuntimeValue val;
     val.type = VAL_FUNCTION;
-    val.as.node = value;
+    val.as.node = ARENA_ALLOC(arena, AstNode);
+    memcpy(val.as.node, value, sizeof(AstNode));
     val.env = 0;
     return val;
 }
@@ -411,6 +412,12 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                     char *param_name = func->as.node->left->statements[i]->value;
                     env_set_obj(inst.env, param_name, val);
                 }
+                if (func->as.node->value)
+                {
+                    RuntimeValue func_inst = *env_get(env, func->as.node->value);
+                    env_set_obj(inst.env, "this", func_inst);
+                } else
+                    env_set_obj(inst.env, "this", inst);
                 val = eval_expression(node->right, inst.env);
             }
             else
@@ -425,6 +432,12 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             {
                 RuntimeValue val = eval_expression(node->left, env);
                 func_name = val.as.node->left->left->value;
+            }
+            else if (node->left->type == AST_PROPERTY)
+            {
+                RuntimeValue val = eval_expression(node->left, env);
+                func_name = val.as.node->left->left->value;
+                env = val.env;
             }
             else
                 func_name= node->left->value;
@@ -574,6 +587,15 @@ void eval_statement(AstNode *node, Environment *env)
             {
                 value = eval_expression(node->right, env);
                 if (runtime_error_occurred) return;
+            }
+            if (value.type == VAL_CLASS_INST)
+            {
+            	for (int i = 0; i < value.as.node->right->statement_count; ++i)
+            	{   // setting instance name to each method
+                    char *method_name = value.as.node->right->statements[i]->left->left->value;
+                    VarEntry *method = value.env->table[hash_string(method_name)];
+                    method->value.as.node->value = node->value;
+            	}
             }
             env_set(env, node->value, value);
             break;

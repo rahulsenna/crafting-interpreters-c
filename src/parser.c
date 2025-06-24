@@ -113,6 +113,10 @@ static inline AstNode *parse_variable(Parser *parser)
     return create_ast_node(AST_VARIABLE, IDENTIFIER, previous_data(parser));
 }
 
+static inline AstNode *parse_this(Parser *parser)
+{
+    return create_ast_node(AST_VARIABLE, IDENTIFIER, "this");
+}
 static inline AstNode *parse_unary(Parser *parser)
 {
     TokenType operator = previous(parser);
@@ -192,7 +196,7 @@ static ParseRule rules[] =
     [PRINT]         = {NULL,           NULL,         PREC_NONE},
     [RETURN]        = {NULL,           NULL,         PREC_NONE},
     [SUPER]         = {NULL,           NULL,         PREC_NONE},
-    [THIS]          = {NULL,           NULL,         PREC_NONE},
+    [THIS]          = {parse_this,     NULL,         PREC_NONE},
     [TRUE]          = {parse_literal,  NULL,         PREC_NONE},
     [VAR]           = {NULL,           NULL,         PREC_NONE},
     [WHILE]         = {NULL,           NULL,         PREC_NONE},
@@ -246,6 +250,7 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
         consume(parser, IDENTIFIER, "error");
         AstNode *property = create_ast_node(AST_PROPERTY, DOT, NULL);
         property->left = left; // instance
+        prefix_rule = get_rule(previous(parser))->prefix;
         property->right = prefix_rule(parser);
         if (match(parser, LEFT_PAREN))
         {
