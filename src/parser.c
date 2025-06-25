@@ -530,7 +530,12 @@ AstNode* parse_statement(Parser *parser)
     }
     if (match(parser, CLASS))
     {
-        AstNode *class_name = parse_expression(parser);
+        consume(parser, IDENTIFIER, "Expected Class Name");
+        AstNode *class_name = parse_variable(parser);
+        if (match(parser, LESS))
+        {
+            consume(parser, IDENTIFIER, "Expected Superclass");
+        }
         consume(parser, LEFT_BRACE, "Expected '{'");
         AstNode *block = parse_class_block(parser);
         AstNode *class = create_ast_node(AST_CLASS_DECL, CLASS, NULL);
