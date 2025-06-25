@@ -663,6 +663,23 @@ void analyze_statement(AstNode *node, Parser *parser)
                 analyze_statement(node->right->statements[i], parser);
             break;
         }
+        case AST_CLASS_DECL:
+        {
+            for (int i = 0; i < node->right->statement_count; ++i)
+            {
+                AstNode *func_node = node->right->statements[i];
+                for (int j = 0; j < func_node->right->statement_count; ++j)
+                {
+                    AstNode *stmt = func_node->right->statements[j];
+                    if (stmt->type == AST_RETURN_STMT && stmt->left && is_str_eq(func_node->left->left->value, "init"))
+                    {
+                        error_at_current(parser, "constructor should not return");
+                        return;
+                    }
+                }
+            }
+            break;
+        }
         default:
             break;
     }
