@@ -245,7 +245,7 @@ AstNode *parse_precedence(Parser *parser, Precedence precedence)
         func_call->left = left;
         left = func_call;
     }
-    if (match(parser, DOT))
+    while (match(parser, DOT))
     {
         consume(parser, IDENTIFIER, "error");
         AstNode *property = create_ast_node(AST_PROPERTY, DOT, NULL);

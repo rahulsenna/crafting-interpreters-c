@@ -342,6 +342,33 @@ static RuntimeValue eval_unary(AstNode *node, Environment *env)
 
 int runtime_return = 0;
 
+void set_func_params(AstNode *node, Environment *env, RuntimeValue *func, Environment *stack_params_env, Arena *target_arena)
+{
+    for (int i = 0; i < node->statement_count; i++) // setting parameters on stack
+    {
+        RuntimeValue val = eval_expression(node->statements[i], env);
+        char *param_name = func->as.node->left->statements[i]->value;
+        env_set_with_arena(stack_params_env, param_name, val, target_arena);
+    }
+}
+
+RuntimeValue run_function(RuntimeValue *func, Environment *stack_params_env)
+{
+    for (size_t i = 0; i < func->as.node->right->statement_count && !runtime_error_occurred; i++)
+    {
+        eval_statement(func->as.node->right->statements[i], stack_params_env);
+        if (runtime_return)
+            break;
+    }
+    RuntimeValue return_val = make_nil();
+    if (runtime_return)
+    {
+        return_val = *env_get(stack_params_env, "return");
+        runtime_return = 0;
+    }
+    return return_val;
+}
+
 static RuntimeValue eval_expression(AstNode *node, Environment *env)
 {
     if (!node || runtime_error_occurred) return make_nil();
@@ -396,6 +423,12 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
         }
         case AST_PROPERTY:
         {
+            while (node->left->type == AST_PROPERTY)
+            {
+                eval_expression(node->left, env);
+                node->left = node->left->left;
+            }
+
             RuntimeValue inst, val;
             if (node->left->type == AST_FUNC_CALL)
                 inst = eval_expression(node->left, env);
@@ -405,13 +438,10 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             if (node->right->type == AST_FUNC_CALL)
             {
                 RuntimeValue *func = env_get(inst.env, node->right->left->value);
+                set_func_params(node->right, env, func, inst.env, obj_arena);
                 for (int i = 0; i < node->right->statement_count; i++) // setting parameters on stack
-                {
-                    RuntimeValue val = eval_expression(node->right->statements[i], env);
                     node->right->statements[i]->scope_depth = INT64_MAX; // reseting scope depth
-                    char *param_name = func->as.node->left->statements[i]->value;
-                    env_set_obj(inst.env, param_name, val);
-                }
+                
                 if (func->as.node->value)
                 {
                     RuntimeValue func_inst = *env_get(env, func->as.node->value);
@@ -419,6 +449,8 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                 } else
                     env_set_obj(inst.env, "this", inst);
                 val = eval_expression(node->right, inst.env);
+                // val = run_function(func, inst.env);
+                // val.env = inst.env;
             }
             else
             {
@@ -474,7 +506,16 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                 RuntimeValue *func = func_and_scope->val;
                 if (func->type == VAL_CLASS)
                 {
-                    return make_class_inst(func->as.node, env);
+                    RuntimeValue inst = make_class_inst(func->as.node, env);
+                    VarEntry *entry = inst.env->table[hash_string("init")];
+                    if (entry)
+                    {
+                        RuntimeValue init = entry->value;
+                        env_set(inst.env, "this", inst);
+                        set_func_params(node, env, &init, inst.env, arena);
+                        run_function(&init, inst.env);
+                    }
+                    return inst;
                 }
 
                 if (node->statement_count != func->as.node->left->statement_count)
@@ -499,31 +540,17 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                     stack_params_env = create_environment(func_env);
                 }
 
-                for (int i = 0; i < node->statement_count; i++) // setting parameters on stack
-                {
-                    RuntimeValue val = eval_expression(node->statements[i], env);
-                    char *param_name = func->as.node->left->statements[i]->value;
-                    env_set(stack_params_env, param_name, val);
-                }
+                set_func_params(node, env, func, stack_params_env, arena);
                 if (scope.saved_offset == 0)
                     scope = arena_scope_begin(arena);
-                for (size_t i = 0; i < func->as.node->right->statement_count && !runtime_error_occurred; i++)
+
+                RuntimeValue return_val = run_function(func, stack_params_env);
+                if (return_val.type == VAL_FUNCTION)
                 {
-                    eval_statement(func->as.node->right->statements[i], stack_params_env);
-                    if (runtime_return)
-                        break;
+                    return_val.env = stack_params_env;
+                    return return_val; // keeping the scope for closures
                 }
-                RuntimeValue return_val = make_nil();
-                if (runtime_return)
-                {
-                    return_val = *env_get(stack_params_env, "return");
-                    runtime_return = 0;
-                    if (return_val.type == VAL_FUNCTION)
-                    {
-                        return_val.env = stack_params_env;
-                        return return_val;
-                    }
-                }
+                
                 arena_scope_end(arena, scope);
                 return return_val;
             }
@@ -536,6 +563,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
     
     return make_nil();
 }
+
 
 
 static void eval_block(AstNode *block, Environment *env)
