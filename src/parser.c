@@ -535,6 +535,8 @@ AstNode* parse_statement(Parser *parser)
         if (match(parser, LESS))
         {
             consume(parser, IDENTIFIER, "Expected Superclass");
+            AstNode *super_class = parse_variable(parser);
+            class_name->left = super_class;
         }
         consume(parser, LEFT_BRACE, "Expected '{'");
         AstNode *block = parse_class_block(parser);

@@ -195,6 +195,14 @@ static RuntimeValue make_class_inst(AstNode *value, Environment *env)
 
     for (size_t i = 0; i < value->right->statement_count && !runtime_error_occurred; i++)
         eval_statement(value->right->statements[i], val.env);
+
+    while (value->left->left) // superclass
+    {
+        RuntimeValue *super = env_get(env, value->left->left->value);
+        value = super->as.node;
+        for (size_t i = 0; i < value->right->statement_count && !runtime_error_occurred; i++)
+            eval_statement(value->right->statements[i], val.env);
+    }
     return val;
 }
 
