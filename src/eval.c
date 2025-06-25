@@ -421,7 +421,15 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                 val = eval_expression(node->right, inst.env);
             }
             else
-                val = *env_get(inst.env, node->right->value);
+            {
+                RuntimeValue *v = env_get(inst.env, node->right->value);
+                if (v == NULL)
+                {
+                    runtime_error("can't be accessed");
+                    return make_nil();
+                }
+                val = *v;
+            }
 
             return val;
         }
@@ -441,7 +449,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
             }
             else
                 func_name= node->left->value;
-            if (func_name == NULL)
+            if (func_name == NULL || is_str_eq(func_name, "this"))
             {
                 runtime_error("Can only call functions and classes.");
                 return make_nil();

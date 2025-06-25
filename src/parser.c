@@ -115,7 +115,7 @@ static inline AstNode *parse_variable(Parser *parser)
 
 static inline AstNode *parse_this(Parser *parser)
 {
-    return create_ast_node(AST_VARIABLE, IDENTIFIER, "this");
+    return create_ast_node(AST_VARIABLE, THIS, "this");
 }
 static inline AstNode *parse_unary(Parser *parser)
 {
@@ -643,6 +643,31 @@ void analyze_block(AstNode *node, Parser *parser)
     }
 }
 
+void analyze_expression(AstNode *node, Parser *parser)
+{
+    if (node->token_type == THIS)
+    { 
+        error_at_current(parser, "using `this` outside of a class");
+    }
+}
+void analyze_statement(AstNode *node, Parser *parser)
+{
+    if (!node) return;
+    switch (node->type)
+    {
+        case AST_EXPRESSION_STMT: analyze_expression(node->left, parser); break;
+        case AST_PRINT_STMT: analyze_expression(node->left, parser); break;
+        case AST_FUNC_DECL:
+        {
+            for (int i = 0; i < node->right->statement_count; ++i)
+                analyze_statement(node->right->statements[i], parser);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
  void analyze(AstNode *program, Parser *parser)
 {
     ArenaScope scope = arena_scope_begin(arena);
@@ -658,6 +683,8 @@ void analyze_block(AstNode *node, Parser *parser)
 
         if (program->statements[i]->type == AST_RETURN_STMT)
             error_at_current(parser, "Return statements are not allowed at the top level");
+
+        analyze_statement(program->statements[i], parser);
     }
     arena_scope_end(arena, scope);
 }
