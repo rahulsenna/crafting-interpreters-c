@@ -119,6 +119,8 @@ static inline AstNode *parse_this(Parser *parser)
 }
 static inline AstNode *parse_super(Parser *parser)
 {
+    if (peek(parser) != DOT)
+        error_at_current(parser, "super must be followed by `.`");
     return create_ast_node(AST_VARIABLE, SUPER, "super");
 }
 static inline AstNode *parse_unary(Parser *parser)
@@ -660,6 +662,10 @@ void analyze_expression(AstNode *node, Parser *parser)
     { 
         error_at_current(parser, "using `this` outside of a class");
     }
+    if (node->type == AST_PROPERTY && node->left->token_type == SUPER)
+    { 
+        error_at_current(parser, "`super` can't be used outside of a class");
+    }
 }
 void analyze_statement(AstNode *node, Parser *parser)
 {
@@ -693,6 +699,11 @@ void analyze_statement(AstNode *node, Parser *parser)
                 for (int j = 0; j < func_node->right->statement_count; ++j)
                 {
                     AstNode *stmt = func_node->right->statements[j];
+                    if (super_class == NULL && stmt->left && stmt->left->left && stmt->left->left->token_type == SUPER)
+                    {
+                        error_at_current(parser, "this is not a subclass");
+                        return;
+                    }
                     if (super_class)
                     {
                         if (stmt->left->type == AST_PROPERTY && stmt->left->left->token_type == SUPER)
