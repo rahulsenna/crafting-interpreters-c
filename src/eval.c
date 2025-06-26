@@ -516,6 +516,7 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
                 RuntimeValue *func = func_and_scope->val;
                 if (func->type == VAL_CLASS)
                 {
+                    node->scope_depth = INT64_MAX; // reset scope_depth for `super method` calls in overriden methods
                     RuntimeValue inst = make_class_inst(func->as.node, env);
                     VarEntry *entry = inst.env->table[hash_string("init")];
                     if (entry)

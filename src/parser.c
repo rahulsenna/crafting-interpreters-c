@@ -117,6 +117,10 @@ static inline AstNode *parse_this(Parser *parser)
 {
     return create_ast_node(AST_VARIABLE, THIS, "this");
 }
+static inline AstNode *parse_super(Parser *parser)
+{
+    return create_ast_node(AST_VARIABLE, SUPER, "super");
+}
 static inline AstNode *parse_unary(Parser *parser)
 {
     TokenType operator = previous(parser);
@@ -195,7 +199,7 @@ static ParseRule rules[] =
     [OR]            = {NULL,           parse_binary, PREC_OR},
     [PRINT]         = {NULL,           NULL,         PREC_NONE},
     [RETURN]        = {NULL,           NULL,         PREC_NONE},
-    [SUPER]         = {NULL,           NULL,         PREC_NONE},
+    [SUPER]         = {parse_super,    NULL,         PREC_NONE},
     [THIS]          = {parse_this,     NULL,         PREC_NONE},
     [TRUE]          = {parse_literal,  NULL,         PREC_NONE},
     [VAR]           = {NULL,           NULL,         PREC_NONE},
@@ -672,10 +676,11 @@ void analyze_statement(AstNode *node, Parser *parser)
         }
         case AST_CLASS_DECL:
         {
+            char *super_class = 0;
             if (node->left->left)
             {
                 char *this_class = node->left->value;
-                char *super_class = node->left->left->value;
+                super_class = node->left->left->value;
                 if (is_str_eq(this_class, super_class))
                 {
                     error_at_current(parser, "A class can't inherit from itself.");
@@ -688,6 +693,27 @@ void analyze_statement(AstNode *node, Parser *parser)
                 for (int j = 0; j < func_node->right->statement_count; ++j)
                 {
                     AstNode *stmt = func_node->right->statements[j];
+                    if (super_class)
+                    {
+                        if (stmt->left->type == AST_PROPERTY && stmt->left->left->token_type == SUPER)
+                        {
+                            stmt->left->left = create_ast_node(AST_FUNC_CALL, IDENTIFIER, NULL);
+                            stmt->left->left->left = create_ast_node(AST_VARIABLE, IDENTIFIER, super_class);    
+                        }
+                        if (stmt->type == AST_FUNC_DECL)
+                        {
+                            for (int k = 0; k < stmt->right->statement_count; ++k)
+                            {
+                                AstNode *k_stmt = stmt->right->statements[k];
+                                if (k_stmt->left->type == AST_PROPERTY && k_stmt->left->left->token_type == SUPER)
+                                {
+                                    k_stmt->left->left = create_ast_node(AST_FUNC_CALL, IDENTIFIER, NULL);
+                                    k_stmt->left->left->left = create_ast_node(AST_VARIABLE, IDENTIFIER, super_class);    
+                                }
+                            }
+                        }
+                        int d = 3;
+                    }
                     if (stmt->type == AST_RETURN_STMT && stmt->left && is_str_eq(func_node->left->left->value, "init"))
                     {
                         error_at_current(parser, "constructor should not return");
@@ -720,5 +746,5 @@ void analyze_statement(AstNode *node, Parser *parser)
 
         analyze_statement(program->statements[i], parser);
     }
-    arena_scope_end(arena, scope);
+    // arena_scope_end(arena, scope);
 }
