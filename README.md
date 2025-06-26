@@ -1,50 +1,79 @@
-[![progress-banner](https://backend.codecrafters.io/progress/interpreter/d5f6e63b-9161-47c9-a19d-5e2ee607d9fb)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
-This is a starting point for C solutions to the
-["Build your own Interpreter" Challenge](https://app.codecrafters.io/courses/interpreter/overview).
+# clox — Lox Interpreter in C
 
-This challenge follows the book
-[Crafting Interpreters](https://craftinginterpreters.com/) by Robert Nystrom.
+`clox` is an implementation of the [Lox programming language](https://craftinginterpreters.com/) in C, based on the book **Crafting Interpreters** by Robert Nystrom. Lox is a simple, dynamically-typed, object-oriented language designed for learning interpreter and compiler design.
 
-In this challenge you'll build an interpreter for
-[Lox](https://craftinginterpreters.com/the-lox-language.html), a simple
-scripting language. Along the way, you'll learn about tokenization, ASTs,
-tree-walk interpreters and more.
+This project implements the **tree-walk interpreter** version (clox), written entirely in C.
 
-Before starting this challenge, make sure you've read the "Welcome" part of the
-book that contains these chapters:
+---
 
-- [Introduction](https://craftinginterpreters.com/introduction.html) (chapter 1)
-- [A Map of the Territory](https://craftinginterpreters.com/a-map-of-the-territory.html)
-  (chapter 2)
-- [The Lox Language](https://craftinginterpreters.com/the-lox-language.html)
-  (chapter 3)
+## ✨ Features
 
-These chapters don't involve writing code, so they won't be covered in this
-challenge. This challenge will start from chapter 4,
-[Scanning](https://craftinginterpreters.com/scanning.html).
+* Full implementation of the Lox language (as per Part II of the book)
+* Lexical scanner
+* Pratt parser
+* Resolver for variable scoping and closures
+* Support for:
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+  * Classes and inheritance
+  * Closures and first-class functions
+  * Native functions (e.g., `clock()`)
 
-# Passing the first stage
+---
 
-The entry point for your program is in `src/main.c`. Study and uncomment the
-relevant code, and push your changes to pass the first stage:
+## 🧠 Project Structure
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+```
+clox/
+├── CMakeLists.txt
+├── codecrafters.yml
+├── README.md
+├── src
+│   ├── arena.h              # Memory management
+│   ├── eval.c/h             # Evaluator (Interpreter)
+│   ├── main.c/h             # Entry point
+│   ├── parser.c/h           # Pratt parser
+│   └── scanner.c/h          # Tokenizer (lexical analysis)
+├── vcpkg-configuration.json
+├── vcpkg.json
+└── your_program.sh
 ```
 
-Time to move on to the next stage!
+---
 
-# Stage 2 & beyond
+## 🛠️ Building
 
-Note: This section is for stages 2 and beyond.
+### Requirements
 
-1. Ensure you have `gcc` installed locally
-2. Run `./your_program.sh` to run your program, which is implemented in
-   `src/main.c`.
-3. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+* C compiler (GCC or Clang)
+* `cmake`
+
+### Compile
+
+```bash
+git clone https://github.com/rahulsenna/crafting-interpreters-c.git 
+cd crafting-interpreters-c
+./your_program.sh
+```
+
+## 📚 Resources
+
+* [Crafting Interpreters (official site)](https://craftinginterpreters.com/)
+* [Lox Language Specification](https://craftinginterpreters.com/the-lox-language.html)
+* [Bob Nystrom’s GitHub](https://github.com/munificent)
+
+---
+
+## 🧼 TODO / Improvements
+
+* Add garbage collection statistics
+* Better error messages with line/column info
+* Optional static analysis or type hints
+* Package manager or REPL history
+
+---
+
+## 📝 License
+
+This project is open-source and available under the MIT License.
+Credits to Bob Nystrom for the language and book design.
