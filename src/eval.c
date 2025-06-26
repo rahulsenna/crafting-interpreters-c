@@ -697,6 +697,15 @@ void eval_statement(AstNode *node, Environment *env)
         }
         case AST_CLASS_DECL:
         {
+            if (node->left->left)
+            {
+                RuntimeValue *class = env_get(env, node->left->left->value);
+                if (class->as.node->type != AST_CLASS_DECL)
+                { 
+                    runtime_error("A class can only inherit from a class");
+                    return; 	
+                }
+            }
             char *class_name = node->left->value;
             RuntimeValue class_val = make_class(node);
             env_set(env, class_name, class_val);

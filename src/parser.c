@@ -672,6 +672,16 @@ void analyze_statement(AstNode *node, Parser *parser)
         }
         case AST_CLASS_DECL:
         {
+            if (node->left->left)
+            {
+                char *this_class = node->left->value;
+                char *super_class = node->left->left->value;
+                if (is_str_eq(this_class, super_class))
+                {
+                    error_at_current(parser, "A class can't inherit from itself.");
+                    return;
+                }
+            }
             for (int i = 0; i < node->right->statement_count; ++i)
             {
                 AstNode *func_node = node->right->statements[i];
