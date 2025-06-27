@@ -362,8 +362,22 @@ void set_func_params(AstNode *node, Environment *env, RuntimeValue *func, Enviro
     }
 }
 
-RuntimeValue run_function(RuntimeValue *func, Environment *stack_params_env)
+RuntimeValue run_function(AstNode* node, Environment *env,  RuntimeValue *func, Environment *func_env)
 {
+    Environment *stack_params_env;
+    ArenaScope scope = {.saved_offset = 0};
+    if (func->env)
+        stack_params_env = func->env;
+    else
+    {
+        scope = arena_scope_begin(arena);
+        stack_params_env = create_environment(func_env);
+    }
+
+    set_func_params(node, env, func, stack_params_env, arena);
+    if (scope.saved_offset == 0)
+        scope = arena_scope_begin(arena);
+
     for (size_t i = 0; i < func->as.node->right->statement_count && !runtime_error_occurred; i++)
     {
         eval_statement(func->as.node->right->statements[i], stack_params_env);
@@ -375,8 +389,121 @@ RuntimeValue run_function(RuntimeValue *func, Environment *stack_params_env)
     {
         return_val = *env_get(stack_params_env, "return");
         runtime_return = 0;
+
+        if (return_val.type == VAL_FUNCTION)
+        {
+            return_val.env = stack_params_env;
+            return return_val; // keeping the scope for closures
+        }
     }
+    arena_scope_end(arena, scope);
     return return_val;
+}
+
+RuntimeValue handle_func_call(AstNode *node, Environment *env);
+
+RuntimeValue handle_obj_property(AstNode *node, Environment *env)
+{
+    while (node->left->type == AST_PROPERTY)
+    {
+        handle_obj_property(node->left, env);
+        node->left = node->left->left;
+    }
+
+    RuntimeValue inst, val;
+    if (node->left->type == AST_FUNC_CALL)
+        inst = handle_func_call(node->left, env);
+    else
+        inst = *env_get(env, node->left->value);
+
+    if (node->right->type == AST_FUNC_CALL)
+    {
+        RuntimeValue *func = env_get(inst.env, node->right->left->value);
+        
+        if (func->as.node->value)
+        {
+            RuntimeValue func_inst = *env_get(env, func->as.node->value);
+            env_set_obj(inst.env, "this", func_inst);
+        }
+        else
+            env_set_obj(inst.env, "this", inst);
+        set_func_params(node->right, env, func, inst.env, obj_arena);
+        val = run_function(node, env, func, inst.env);
+    }
+    else
+    {
+        RuntimeValue *v = env_get(inst.env, node->right->value);
+        if (v == NULL)
+        {
+            runtime_error("can't be accessed");
+            return make_nil();
+        }
+        val = *v;
+    }
+
+    return val;
+}
+
+RuntimeValue handle_func_call(AstNode *node, Environment *env)
+{
+    char *func_name;
+    if (node->left->type == AST_FUNC_CALL)
+    {
+        RuntimeValue val = handle_func_call(node->left, env);
+        func_name = val.as.node->left->left->value;
+    }
+    else if (node->left->type == AST_PROPERTY)
+    {
+        RuntimeValue val = handle_obj_property(node->left, env);
+        func_name = val.as.node->left->left->value;
+        env = val.env;
+    }
+    else
+        func_name = node->left->value;
+    if (func_name == NULL || is_str_eq(func_name, "this"))
+    {
+        runtime_error("Can only call functions and classes.");
+        return make_nil();
+    }
+
+    if (is_str_eq(func_name, "clock"))
+    {
+        time_t t = time(NULL);
+        return make_number(t);
+    }
+
+    if (node->scope_depth == INT64_MAX)
+        node->scope_depth = env_get_depth(env, func_name, 0);
+    ValAndScope *func_and_scope = node->scope_depth == INT64_MAX ? NULL : env_get_with_scope(env, func_name, node->scope_depth);
+    if (func_and_scope == NULL || node->scope_depth == INT64_MAX)
+    {
+        runtime_error("Can only call functions and classes.");
+        return make_nil();
+    }
+    RuntimeValue *func = func_and_scope->val;
+    if (func->type == VAL_CLASS)
+    {
+        node->scope_depth = INT64_MAX; // reset scope_depth for `super method` calls in overriden methods
+        RuntimeValue inst = make_class_inst(func->as.node, env);
+        VarEntry *entry = inst.env->table[hash_string("init")];
+        if (entry)
+        {
+            RuntimeValue init = entry->value;
+            env_set(inst.env, "this", inst);
+            run_function(node, env, &init, inst.env);
+        }
+        return inst;
+    }
+
+    if (node->statement_count != func->as.node->left->statement_count)
+    {
+        char msg[1024];
+        sprintf(msg, "Expected %zu arguments but got %zu.", func->as.node->left->statement_count, node->statement_count);
+        runtime_error(msg);
+        return make_nil();
+    }
+
+    return run_function(node, env, func, func_and_scope->env);    
 }
 
 static RuntimeValue eval_expression(AstNode *node, Environment *env)
@@ -433,139 +560,11 @@ static RuntimeValue eval_expression(AstNode *node, Environment *env)
         }
         case AST_PROPERTY:
         {
-            while (node->left->type == AST_PROPERTY)
-            {
-                eval_expression(node->left, env);
-                node->left = node->left->left;
-            }
-
-            RuntimeValue inst, val;
-            if (node->left->type == AST_FUNC_CALL)
-                inst = eval_expression(node->left, env);
-            else
-                inst = *env_get(env, node->left->value);
-
-            if (node->right->type == AST_FUNC_CALL)
-            {
-                RuntimeValue *func = env_get(inst.env, node->right->left->value);
-                set_func_params(node->right, env, func, inst.env, obj_arena);
-                for (int i = 0; i < node->right->statement_count; i++) // setting parameters on stack
-                    node->right->statements[i]->scope_depth = INT64_MAX; // reseting scope depth
-                
-                if (func->as.node->value)
-                {
-                    RuntimeValue func_inst = *env_get(env, func->as.node->value);
-                    env_set_obj(inst.env, "this", func_inst);
-                } else
-                    env_set_obj(inst.env, "this", inst);
-                val = eval_expression(node->right, inst.env);
-                // val = run_function(func, inst.env);
-                // val.env = inst.env;
-            }
-            else
-            {
-                RuntimeValue *v = env_get(inst.env, node->right->value);
-                if (v == NULL)
-                {
-                    runtime_error("can't be accessed");
-                    return make_nil();
-                }
-                val = *v;
-            }
-
-            return val;
+            return handle_obj_property(node, env);
         }
         case AST_FUNC_CALL:
         {
-            char *func_name;
-            if (node->left->type == AST_FUNC_CALL)
-            {
-                RuntimeValue val = eval_expression(node->left, env);
-                func_name = val.as.node->left->left->value;
-            }
-            else if (node->left->type == AST_PROPERTY)
-            {
-                RuntimeValue val = eval_expression(node->left, env);
-                func_name = val.as.node->left->left->value;
-                env = val.env;
-            }
-            else
-                func_name= node->left->value;
-            if (func_name == NULL || is_str_eq(func_name, "this"))
-            {
-                runtime_error("Can only call functions and classes.");
-                return make_nil();
-            }
-
-            if (is_str_eq(func_name, "clock"))
-            {
-                time_t t = time(NULL);
-                return make_number(t);
-            }
-            else
-            {
-                if (node->scope_depth == INT64_MAX)
-                    node->scope_depth = env_get_depth(env, func_name, 0);
-                ValAndScope *func_and_scope = node->scope_depth == INT64_MAX ? NULL :
-                    env_get_with_scope(env, func_name, node->scope_depth);
-                if (func_and_scope == NULL || node->scope_depth == INT64_MAX)
-                {
-                    runtime_error("Can only call functions and classes.");
-                    return make_nil();
-                }
-                RuntimeValue *func = func_and_scope->val;
-                if (func->type == VAL_CLASS)
-                {
-                    node->scope_depth = INT64_MAX; // reset scope_depth for `super method` calls in overriden methods
-                    RuntimeValue inst = make_class_inst(func->as.node, env);
-                    VarEntry *entry = inst.env->table[hash_string("init")];
-                    if (entry)
-                    {
-                        RuntimeValue init = entry->value;
-                        env_set(inst.env, "this", inst);
-                        set_func_params(node, env, &init, inst.env, arena);
-                        run_function(&init, inst.env);
-                    }
-                    return inst;
-                }
-
-                if (node->statement_count != func->as.node->left->statement_count)
-                {
-                    char msg[1024];
-                    sprintf(msg, "Expected %zu arguments but got %zu.", func->as.node->left->statement_count, node->statement_count);
-                    runtime_error(msg);
-                    return make_nil();
-                }
-                                
-                Environment *func_env = env;
-                if (func_and_scope->env)
-                    func_env = func_and_scope->env;
-
-                Environment *stack_params_env;
-                ArenaScope scope = {.saved_offset = 0};
-                if (func->env)
-                    stack_params_env = func->env;
-                else
-                {
-                    scope = arena_scope_begin(arena);
-                    stack_params_env = create_environment(func_env);
-                }
-
-                set_func_params(node, env, func, stack_params_env, arena);
-                if (scope.saved_offset == 0)
-                    scope = arena_scope_begin(arena);
-
-                RuntimeValue return_val = run_function(func, stack_params_env);
-                if (return_val.type == VAL_FUNCTION)
-                {
-                    return_val.env = stack_params_env;
-                    return return_val; // keeping the scope for closures
-                }
-                
-                arena_scope_end(arena, scope);
-                return return_val;
-            }
-            
+            return handle_func_call(node, env);
         }
 
         default:
